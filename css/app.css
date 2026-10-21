@@ -1,0 +1,565 @@
+:root {
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --ink: #1a2332;
+  --muted: #5c6b7a;
+  --line: #d8dee6;
+  --accent: #e85d04;
+  --accent-dark: #c44d00;
+  --navy: #0f2744;
+  --up: #c62828;
+  --down: #1565c0;
+  --chip: #eef2f6;
+  --shadow: 0 1px 3px rgba(15, 39, 68, 0.08);
+  --radius: 10px;
+  --font: "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
+
+* { box-sizing: border-box; }
+.hidden { display: none !important; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--font); }
+button, select, input { font-family: inherit; }
+
+.app-header {
+  background: linear-gradient(120deg, var(--navy) 0%, #1a3a5c 55%, #243b55 100%);
+  color: #fff;
+  padding: 14px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  box-shadow: 0 2px 12px rgba(0,0,0,.18);
+}
+.brand { display: flex; flex-direction: column; gap: 2px; }
+.brand strong { font-size: 1.05rem; letter-spacing: -0.02em; }
+.brand span { font-size: 0.78rem; opacity: .78; }
+.header-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.badge {
+  background: rgba(255,255,255,.12);
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}
+.badge.edit { background: var(--accent); border-color: transparent; }
+
+.nav {
+  display: flex;
+  gap: 4px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  position: sticky;
+  top: 64px;
+  z-index: 30;
+}
+.nav button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+.nav button.active {
+  background: #fff3e9;
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+.nav button:hover { background: var(--chip); color: var(--ink); }
+
+.filters {
+  margin: 14px 16px 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.filters.hidden { display: none; }
+.field label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.field select, .field input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: #fff;
+  color: var(--ink);
+}
+.field.wide { grid-column: span 2; }
+.competitor-field { position: relative; }
+.comp-trigger {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.comp-trigger:hover { border-color: #90a4c8; }
+.modal.modal-comp {
+  width: min(640px, 94vw);
+  max-height: min(86vh, 720px);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px 16px;
+}
+.comp-modal-sub {
+  margin: 0 0 14px !important;
+  font-size: 0.84rem !important;
+}
+.comp-picker {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 4px;
+  margin-bottom: 14px;
+}
+.comp-sector-block .sec-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.comp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+.comp-grid label.chk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  line-height: 1.3;
+  min-width: 0;
+}
+.comp-grid label.chk span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comp-grid label.chk input {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #2563eb;
+}
+.comp-grid label.chk.on span { font-weight: 600; }
+.comp-modal-actions {
+  margin-top: auto;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  justify-content: flex-end !important;
+  gap: 8px;
+}
+.comp-modal-actions .btn.primary {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+@media (max-width: 560px) {
+  .comp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.main { padding: 14px 16px 40px; }
+.page { display: none; }
+.page.active { display: block; }
+
+.page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.page-head h1 { margin: 0; font-size: 1.25rem; }
+.page-head p { margin: 4px 0 0; color: var(--muted); font-size: 0.88rem; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.btn:hover { border-color: #b8c4d0; }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.primary:hover { background: var(--accent-dark); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(12, 1fr);
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px;
+  grid-column: span 12;
+}
+.card h3 {
+  margin: 0 0 10px;
+  font-size: 0.92rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.span-3 { grid-column: span 3; }
+.span-4 { grid-column: span 4; }
+.span-6 { grid-column: span 6; }
+.span-8 { grid-column: span 8; }
+.span-12 { grid-column: span 12; }
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+.kpi-row > .card {
+  grid-column: auto;
+  min-width: 0;
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 88px;
+}
+.kpi .label { font-size: 0.75rem; color: var(--muted); }
+.kpi .value {
+  font-size: clamp(1rem, 1.6vw, 1.25rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.kpi .sub { font-size: 0.78rem; color: var(--muted); line-height: 1.35; }
+
+@media (max-width: 1100px) {
+  .kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.table-wrap { overflow: auto; max-height: 420px; }
+.table-wrap-full {
+  overflow: visible;
+  max-height: none;
+  width: 100%;
+}
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  table-layout: fixed;
+}
+table.data th, table.data td {
+  border-bottom: 1px solid var(--line);
+  padding: 7px 6px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+table.data th:first-child, table.data td:first-child,
+table.data th.left, table.data td.left { text-align: left; }
+/* 사업자명 열: 과도한 가로폭 방지 → 수치 열이 우측으로 치우치지 않게 */
+table.data th.left,
+table.data td.left {
+  width: 7rem;
+  max-width: 7.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+table.data th.rank-col,
+table.data td.rank-cell {
+  width: 4.5rem;
+  max-width: 5.5rem;
+}
+/* 순위·기간 등 맨 앞 짧은 열 (사업자 left가 아닐 때) */
+table.data thead th:first-child:not(.left),
+table.data tbody td:first-child:not(.left) {
+  width: 3.8rem;
+  max-width: 4.5rem;
+}
+/* 기간별 1위 열은 사명+수익률이라 사업자열보다 넓게 */
+table.period-me-table th.left,
+table.period-me-table td.left {
+  width: 11rem;
+  max-width: 13rem;
+}
+table.period-me-table thead th:first-child,
+table.period-me-table tbody td:first-child {
+  width: 3.2rem;
+}
+table.data th { background: #f7f9fb; position: sticky; top: 0; z-index: 1; font-weight: 600; color: var(--muted); }
+table.data thead tr:first-child th[colspan] { text-align: center; }
+table.data thead tr:first-child th[rowspan] { vertical-align: middle; }
+table.data thead tr:nth-child(2) th { top: 28px; text-align: center; }
+table.data tr.me { background: #fff7f0; font-weight: 600; }
+table.data tr.me td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+table.data tr.comp { background: #f5f9ff; }
+table.do-rank-table .rank-cell { white-space: nowrap; font-variant-numeric: tabular-nums; }
+table.do-rank-table .rank-num { font-weight: 700; margin-right: 2px; }
+table.do-rank-table .sort-mark { color: #0d9488; font-size: 0.7rem; }
+table.do-rank-table td.sort-col { font-weight: 600; }
+table.do-rank-table .comp-mark {
+  color: #0d9488;
+  margin-right: 4px;
+  font-size: 0.75rem;
+}
+table.do-rank-table .delta-new { color: var(--muted); font-size: 0.78rem; }
+table.do-rank-table .do-gap.gap-plus,
+table.period-me-table .do-gap.gap-plus { color: var(--up); font-weight: 600; }
+table.do-rank-table .do-gap.gap-minus,
+table.period-me-table .do-gap.gap-minus { color: var(--down); font-weight: 600; }
+table.do-rank-table .do-gap.gap-zero,
+table.period-me-table .do-gap.gap-zero { color: var(--muted); }
+table.period-me-table th,
+table.period-me-table td { white-space: nowrap; }
+table.data td.clickable { cursor: pointer; color: var(--accent-dark); text-decoration: underline dotted; }
+
+/* 경쟁사 비교: 값 + 업권순위 + 비중/평균대비 */
+table.comp-table {
+  table-layout: fixed;
+  width: 100%;
+}
+table.comp-table th,
+table.comp-table td {
+  text-align: center;
+  vertical-align: middle;
+  padding: 8px 5px;
+}
+table.comp-table th {
+  line-height: 1.25;
+}
+table.comp-table th .th-sub {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: #8a97a5;
+}
+table.comp-table th:first-child,
+table.comp-table td.left {
+  text-align: left;
+  width: 7.5rem;
+  max-width: 8.5rem;
+}
+table.comp-table .comp-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.4em;
+  gap: 2px;
+}
+table.comp-table .comp-val {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+table.comp-table .comp-rank {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+table.comp-table .comp-meta {
+  font-size: 0.7rem;
+  color: #6a7a8a;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+table.comp-table .comp-gap.gap-plus { color: var(--up); font-weight: 600; }   /* + 빨강 */
+table.comp-table .comp-gap.gap-minus { color: var(--down); font-weight: 600; } /* − 파랑 */
+table.comp-table .comp-gap.gap-zero { color: var(--muted); }
+table.comp-table tr.me .comp-rank { color: var(--accent-dark); font-weight: 600; }
+
+/* 당사 순위표: 제도 병합·구분선·간격 (스크롤 없이 전체 표시) */
+table.rank-matrix {
+  table-layout: fixed;
+  width: 100%;
+}
+table.rank-matrix th,
+table.rank-matrix td {
+  padding: 7px 6px;
+  vertical-align: middle;
+}
+table.rank-matrix th.col-plan { width: 48px; }
+table.rank-matrix th.col-type { width: 100px; }
+table.rank-matrix th.col-period { width: auto; text-align: center; line-height: 1.2; }
+table.rank-matrix .th-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: #8a97a5;
+}
+table.rank-matrix td.plan-cell {
+  background: #eef2f6;
+  font-weight: 700;
+  text-align: center !important;
+  vertical-align: middle;
+  border-right: 2px solid #0f2744;
+  color: var(--navy);
+  letter-spacing: 0.02em;
+}
+table.rank-matrix td.type-cell {
+  padding-left: 10px;
+  color: var(--ink);
+}
+table.rank-matrix td.rank-cell {
+  text-align: center;
+  padding: 8px 6px;
+}
+table.rank-matrix .rank-main {
+  display: block;
+  font-weight: 700;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+table.rank-matrix .rank-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+table.rank-matrix .rank-empty {
+  color: #b0bac4;
+}
+table.rank-matrix tr.plan-block-start td {
+  border-top: 2.5px solid #0f2744;
+}
+table.rank-matrix tbody tr.plan-block-start:first-child td {
+  border-top: 1px solid var(--line);
+}
+table.rank-matrix tbody tr:not(.plan-block-start) td {
+  border-top: 1px solid #e8eef3;
+}
+.delta-up { color: var(--up); }
+.delta-down { color: var(--down); }
+.delta-same { color: var(--muted); }
+
+.chart-box { position: relative; height: 280px; }
+.chart-box.tall { height: 340px; }
+.note {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.45;
+}
+.tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--chip);
+  color: var(--muted);
+}
+.tag.ok { background: #e8f5e9; color: #2e7d32; }
+.tag.warn { background: #fff3e0; color: #ef6c00; }
+.tag.mix { background: #e3f2fd; color: #1565c0; }
+
+.upload-zone {
+  border: 2px dashed #c5d0db;
+  border-radius: var(--radius);
+  padding: 18px;
+  text-align: center;
+  background: #fafbfc;
+  margin-bottom: 10px;
+}
+.upload-zone.drag { border-color: var(--accent); background: #fff7f0; }
+.upload-zone input { display: none; }
+
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(15,39,68,.45);
+  display: none; align-items: center; justify-content: center; z-index: 100;
+}
+.modal-backdrop.show { display: flex; }
+.modal {
+  background: #fff; border-radius: 12px; padding: 20px; width: min(400px, 92vw);
+  box-shadow: 0 12px 40px rgba(0,0,0,.2);
+}
+.modal.modal-wide { width: min(720px, 94vw); }
+.modal .actions { justify-content: flex-end; }
+.modal h2 { margin: 0 0 8px; font-size: 1.1rem; }
+.modal p { margin: 0 0 12px; color: var(--muted); font-size: 0.88rem; }
+.modal input[type=password] {
+  width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px;
+}
+.toast {
+  position: fixed; bottom: 20px; right: 20px; background: var(--navy); color: #fff;
+  padding: 10px 14px; border-radius: 8px; display: none; z-index: 120; font-size: 0.85rem;
+}
+.toast.show { display: block; }
+
+/* PDF 캡처 시 버튼·스크롤 제한 해제 */
+body.capturing-pdf .app-header,
+body.capturing-pdf .nav,
+body.capturing-pdf #btnPdf,
+body.capturing-pdf .actions .btn,
+body.capturing-pdf h3 .btn {
+  visibility: hidden !important;
+}
+body.capturing-pdf,
+body.capturing-pdf .main,
+body.capturing-pdf .page.active,
+body.capturing-pdf #filterCommon,
+body.capturing-pdf .grid,
+body.capturing-pdf .card {
+  overflow: visible !important;
+}
+body.capturing-pdf .table-wrap {
+  max-height: none !important;
+  overflow: visible !important;
+}
+body.capturing-pdf #filterCommon {
+  box-shadow: none;
+}
+
+@media (max-width: 1100px) {
+  .span-3, .span-4, .span-6, .span-8 { grid-column: span 12; }
+  .field.wide { grid-column: span 1; }
+}
+@media (max-width: 700px) {
+  .nav { top: 88px; }
+}

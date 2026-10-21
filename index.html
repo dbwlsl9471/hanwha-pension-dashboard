@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>한화투자증권 · 퇴직연금 공시 비교</title>
+  <link rel="stylesheet" href="css/app.css?v=23" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <strong>한화투자증권 · 퇴직연금 공시 비교</strong>
+      <span>통합연금포털 원본 기준 · 당사 고정 · 팀 공유용</span>
+    </div>
+    <div class="header-right">
+      <span class="badge edit" id="editorBadge" style="display:none">편집자</span>
+      <span class="badge" id="dataMetaShort">공시 데이터</span>
+      <button class="btn" id="btnPdf" type="button" title="현재 페이지를 PDF로 저장">PDF 저장</button>
+      <button class="btn" id="btnEditor" type="button">관리자 로그인</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <button type="button" data-page="summary" class="active">요약</button>
+    <button type="button" data-page="sector">업권별</button>
+    <button type="button" data-page="plan">제도별</button>
+    <button type="button" data-page="period">기간별</button>
+    <button type="button" data-page="defaults">디폴트옵션</button>
+    <button type="button" data-page="fees">수수료</button>
+    <button type="button" data-page="data" id="navData" class="nav-admin" style="display:none">데이터 관리</button>
+  </nav>
+
+  <section class="filters" id="filterCommon">
+    <div class="field only-quarter"><label>기준 분기 (직접 선택)</label><select id="fBaseQ"></select></div>
+    <div class="field only-quarter"><label>비교 분기 (직접 선택)</label><select id="fCmpQ"></select></div>
+    <div class="field only-common"><label>제도</label><select id="fPlan"></select></div>
+    <div class="field only-common only-fee-y"><label>상품유형</label><select id="fType"></select></div>
+    <div class="field only-common only-fee-y"><label>기간 수익률</label><select id="fPeriod"></select></div>
+    <div class="field only-common"><label>평균 방식</label><select id="fAvg"></select></div>
+    <div class="field only-common"><label>최소 적립금(억)</label><input id="fMinAum" type="number" min="0" step="1" /></div>
+    <div class="field only-sector"><label>업권</label><select id="fSector"></select></div>
+    <div class="field only-common competitor-field">
+      <label>경쟁사 선택</label>
+      <button type="button" class="comp-trigger" id="btnCompPick">경쟁사 0개</button>
+    </div>
+
+    <div class="field only-defaults hidden"><label>위험등급</label><select id="fRisk"></select></div>
+    <div class="field only-defaults hidden"><label>수익률 기간</label><select id="fDoPeriod"></select></div>
+
+    <div class="field only-fees hidden"><label>기준 연도</label><select id="fFeeYear"></select></div>
+    <div class="field only-fees hidden"><label>비교 연도</label><select id="fFeeCmpYear"></select></div>
+    <div class="field only-fees hidden"><label>업권</label><select id="fFeeSector"></select></div>
+    <div class="field only-fees hidden"><label>제도</label><select id="fFeePlan"></select></div>
+
+  </section>
+
+  <main class="main">
+    <!-- 요약 -->
+    <section class="page active" id="page-summary">
+      <div class="page-head">
+        <div>
+          <h1>요약</h1>
+          <p>기준 분기 업권 내 당사 순위와 경쟁사 대비 위치</p>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="kpi-row span-12">
+          <div class="card"><div class="kpi"><span class="label">업권 총적립금</span><span class="value" id="kpiTotal">—</span><span class="sub">선택 제도 합계</span></div></div>
+          <div class="card"><div class="kpi"><span class="label">당사 적립금</span><span class="value" id="kpiMyAum">—</span><span class="sub" id="kpiMyAumSub">—</span></div></div>
+          <div class="card"><div class="kpi"><span class="label">당사 수익률</span><span class="value" id="kpiRet">—</span><span class="sub" id="kpiRetSub">—</span></div></div>
+          <div class="card"><div class="kpi"><span class="label">평균 대비</span><span class="value" id="kpiGap">—</span><span class="sub">업권 평균 대비 %p</span></div></div>
+          <div class="card"><div class="kpi"><span class="label">당사 수수료</span><span class="value" id="kpiFee">—</span><span class="sub" id="kpiFeeSub">—</span></div></div>
+        </div>
+
+        <div class="card span-12">
+          <h3>당사 순위표 (제도×유형×기간) <button class="btn" data-export-table="tblRankMatrix" data-filename="당사순위표.xlsx">엑셀</button></h3>
+          <div class="table-wrap-full" id="rankMatrix"></div>
+          <p class="note">1·3·5·7·10년 · 제도별 병합 · 비교 분기 대비 ▲▼. 칸 클릭 시 필터 전환. 원리금보장(통합)=내부 재구성값.</p>
+        </div>
+        <div class="card span-6">
+          <h3>업권 수익률 TOP5 <button class="btn" data-export-chart="chartTop5" data-filename="top5.png">PNG</button></h3>
+          <div class="chart-box"><canvas id="chartTop5"></canvas></div>
+        </div>
+        <div class="card span-6">
+          <h3>당사 유형별 수익률 추이 (최근 8분기) <button class="btn" data-export-chart="chartTrend" data-filename="유형별수익률추이.png">PNG</button></h3>
+          <div class="chart-box"><canvas id="chartTrend"></canvas></div>
+          <p class="note">선택 제도·기간 기준. 예금성·시장성·실적배당·원리금보장(통합)</p>
+        </div>
+        <div class="card span-12">
+          <h3>경쟁사 비교 <button class="btn" data-export-table="tblComp" data-filename="경쟁사비교.xlsx">엑셀</button></h3>
+          <div class="table-wrap" id="compTable"></div>
+          <p class="note" id="compNote">업권 순위 · 적립금(업권·실적배당 비중) · 수익률(비교분기 ▲▼ · 업권평균 대비 %p)</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 업권별 -->
+    <section class="page" id="page-sector">
+      <div class="page-head">
+        <div><h1>업권별</h1><p>은행·증권·생보·손보 평균과 업권 내 순위·점유율</p></div>
+      </div>
+      <div class="grid">
+        <div class="card span-6">
+          <h3>업권 평균 수익률 <button class="btn" data-export-chart="chartSectorAvg" data-filename="업권평균.png">PNG</button></h3>
+          <div class="chart-box"><canvas id="chartSectorAvg"></canvas></div>
+          <p class="note">주황 점선 = 전체 평균</p>
+        </div>
+        <div class="card span-6">
+          <h3>업권 평균 추이 <button class="btn" data-export-chart="chartSectorTrend" data-filename="업권추이.png">PNG</button></h3>
+          <div class="chart-box"><canvas id="chartSectorTrend"></canvas></div>
+        </div>
+        <div class="card span-12">
+          <h3>선택 업권 순위·점유율 <button class="btn" data-export-table="tblSectorRank" data-filename="업권순위.xlsx">엑셀</button></h3>
+          <div class="table-wrap" id="sectorRank"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 제도별 -->
+    <section class="page" id="page-plan">
+      <div class="page-head">
+        <div><h1>제도별</h1><p>DB·DC·IRP 강점·부진 영역</p></div>
+      </div>
+      <div class="grid">
+        <div class="card span-6">
+          <h3>제도별 당사·업권·전체 평균 <button class="btn" data-export-chart="chartPlanCmp" data-filename="제도비교.png">PNG</button></h3>
+          <div class="chart-box"><canvas id="chartPlanCmp"></canvas></div>
+        </div>
+        <div class="card span-6">
+          <h3>제도별 적립금 구성 <button class="btn" data-export-chart="chartPlanAum" data-filename="제도적립구성.png">PNG</button></h3>
+          <div class="chart-box tall"><canvas id="chartPlanAum"></canvas></div>
+          <p class="note">당사·업권·전체 DB/DC/IRP 비중(100% 누적). 원리금보장+실적배당 적립금 기준</p>
+        </div>
+        <div class="card span-12">
+          <h3>실적배당 비중 추이 <button class="btn" data-export-chart="chartEquity" data-filename="실적배당비중.png">PNG</button></h3>
+          <div class="chart-box"><canvas id="chartEquity"></canvas></div>
+          <p class="note">당사·증권업·전체 + 선택 경쟁사. 범례 클릭으로 선 on/off</p>
+        </div>
+        <div class="card span-12">
+          <h3>업권 사업자별 제도 비교 (적립금 합계 순) <button class="btn" data-export-table="tblPlanProv" data-filename="제도사업자.xlsx">엑셀</button></h3>
+          <div class="table-wrap" id="planProv"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 기간별 -->
+    <section class="page" id="page-period">
+      <div class="page-head">
+        <div><h1>기간별</h1><p>단기·장기 수익률 경쟁력 (3년 이상 연환산)</p></div>
+      </div>
+      <div class="grid">
+        <div class="card span-12">
+          <h3>기간별 수익률 곡선 <button class="btn" data-export-chart="chartPeriod" data-filename="기간곡선.png">PNG</button></h3>
+          <div class="chart-box"><canvas id="chartPeriod"></canvas></div>
+          <p class="note" id="periodCurveNote">당사·증권 업권 평균·전체 평균 + 선택 경쟁사. 범례 클릭으로 선 on/off</p>
+        </div>
+        <div class="card span-12">
+          <h3>당사 기간별 순위 <button class="btn" data-export-table="tblPeriodMe" data-filename="기간순위.xlsx">엑셀</button></h3>
+          <p class="note" id="periodMeNote"></p>
+          <div class="table-wrap" id="periodMe"></div>
+        </div>
+        <div class="card span-12">
+          <h3>사업자 × 기간 (1년 순위 순) <button class="btn" data-export-table="tblPeriodProv" data-filename="기간사업자.xlsx">엑셀</button></h3>
+          <div class="table-wrap" id="periodProv"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 디폴트옵션 -->
+    <section class="page" id="page-defaults">
+      <div class="page-head">
+        <div><h1>디폴트옵션</h1><p>위험등급별 수익률·적립금 (누적 수익률)</p></div>
+      </div>
+      <div class="grid">
+        <div class="card span-6">
+          <h3>위험등급별 업권 평균 수익률 <button class="btn" data-export-chart="chartDoAvg" data-filename="디폴트업권.png">PNG</button></h3>
+          <div class="chart-box"><canvas id="chartDoAvg"></canvas></div>
+          <p class="note" id="doAvgNote">적립금 가중평균 · 회색 = 전체 평균</p>
+        </div>
+        <div class="card span-6">
+          <h3>위험등급별 적립금 구성 <button class="btn" data-export-chart="chartDoAum" data-filename="디폴트구성.png">PNG</button></h3>
+          <div class="chart-box tall"><canvas id="chartDoAum"></canvas></div>
+          <p class="note" id="doAumNote">당사·업권·전체 위험등급 비중(100%)</p>
+        </div>
+        <div class="card span-12">
+          <h3>디폴트옵션 수익률 추이 <button class="btn" data-export-chart="chartDoTrend" data-filename="디폴트수익률추이.png">PNG</button></h3>
+          <div class="chart-box"><canvas id="chartDoTrend"></canvas></div>
+          <p class="note" id="doTrendNote">당사·증권업·전체 + 선택 경쟁사. 범례 클릭으로 선 on/off</p>
+        </div>
+        <div class="card span-12">
+          <h3 id="doRankTitle">업권 디폴트옵션 순위 <button class="btn" data-export-table="tblDo" data-filename="디폴트순위.xlsx">엑셀</button></h3>
+          <div class="table-wrap" id="doRank"></div>
+          <p class="note" id="doNote"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 수수료 -->
+    <section class="page" id="page-fees">
+      <div class="page-head">
+        <div><h1>수수료</h1><p>수수료 부담과 수익률 (낮을수록 1위)</p></div>
+      </div>
+      <div class="grid">
+        <div class="card span-6">
+          <h3>업권 평균 총비용부담률 <button class="btn" data-export-chart="chartFeeAvg" data-filename="수수료업권.png">PNG</button></h3>
+          <div class="chart-box"><canvas id="chartFeeAvg"></canvas></div>
+        </div>
+        <div class="card span-6">
+          <h3>
+            수수료 × 수익률 산점도
+            <select id="feeScatterScope" style="margin-left:8px;padding:4px 6px;border-radius:6px;border:1px solid var(--line)">
+              <option value="증권">당사 업권</option>
+              <option value="전체업권">전체 업권</option>
+            </select>
+            <button class="btn" data-export-chart="chartFeeScatter" data-filename="수수료산점.png">PNG</button>
+          </h3>
+          <div class="chart-box"><canvas id="chartFeeScatter"></canvas></div>
+          <p class="note">왼쪽 위(저수수료·고수익)가 유리. Y축은 필터의 제도·상품유형·기간 수익률.</p>
+        </div>
+        <div class="card span-12">
+          <h3 id="feeRankTitle">업권 수수료 순위 <button class="btn" data-export-table="tblFee" data-filename="수수료순위.xlsx">엑셀</button></h3>
+          <p class="note" id="feeNote"></p>
+          <div class="table-wrap" id="feeRank"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 데이터 관리 -->
+    <section class="page" id="page-data">
+      <div class="page-head">
+        <div>
+          <h1>데이터 관리</h1>
+          <p id="dataMeta">—</p>
+        </div>
+        <div class="actions">
+          <button class="btn" id="btnExportStore" type="button">배포용 data-store.js 받기</button>
+          <button class="btn" id="btnClearLocal" type="button">로컬 저장 초기화</button>
+        </div>
+      </div>
+
+      <div id="dataEditorOnly">
+        <div class="card">
+          <h3>엑셀 올리기</h3>
+          <div class="filters" style="margin:0 0 12px;box-shadow:none">
+            <div class="field"><label>파일 종류</label>
+              <select id="uploadKind">
+                <option value="auto">자동 인식</option>
+                <option value="returns">수익률</option>
+                <option value="defaults">디폴트옵션</option>
+                <option value="fees">수수료</option>
+              </select>
+            </div>
+            <div class="field"><label>분기/연도 (선택)</label>
+              <input id="uploadKey" type="text" placeholder="예: 2026Q3 또는 2025" />
+            </div>
+          </div>
+          <div class="upload-zone" id="uploadZone">
+            <p>포털 원본 엑셀을 끌어다 놓거나 파일을 선택하세요.</p>
+            <button class="btn primary" type="button" id="btnPickFile">파일 선택</button>
+            <input type="file" id="fileInput" accept=".xlsx,.xls" multiple />
+          </div>
+          <p class="note">파일을 고르면 <b>검증 단계</b>에서 인식 행·문제 행을 확인한 뒤 저장합니다.<br>
+            팀원이 같은 숫자를 보려면 저장 후 <b>배포용 data-store.js</b>를 내려받아 서버 파일을 교체하세요.</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <h3>저장된 데이터 목록</h3>
+        <div class="table-wrap" id="sourceList"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="modalComp">
+    <div class="modal modal-comp">
+      <h2 id="compModalTitle">경쟁사 그룹 (0/6)</h2>
+      <p class="comp-modal-sub">최대 6곳까지 고를 수 있습니다. 선택은 이 사용자에게만 저장됩니다.</p>
+      <div id="compPicker" class="comp-picker"></div>
+      <div class="actions comp-modal-actions">
+        <button class="btn" type="button" id="btnCompDefault">기본값</button>
+        <button class="btn primary" type="button" id="btnCompApply">적용</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalAuth">
+    <div class="modal">
+      <h2>관리자 로그인</h2>
+      <p>데이터 관리·업로드·삭제는 관리자만 가능합니다.</p>
+      <input type="password" id="authPass" placeholder="비밀번호" />
+      <div class="actions">
+        <button class="btn" id="authCancel" type="button">취소</button>
+        <button class="btn primary" id="authOk" type="button">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalValidate">
+    <div class="modal modal-wide">
+      <h2>업로드 검증</h2>
+      <p id="validateSummary">—</p>
+      <div class="table-wrap" style="max-height:240px;margin:10px 0" id="validateProblems"></div>
+      <div class="actions">
+        <button class="btn" id="validateCancel" type="button">취소</button>
+        <button class="btn primary" id="validateSave" type="button">검증 통과 · 저장</button>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script src="js/data-store.js?v=7"></script>
+  <script src="js/calc.js?v=9"></script>
+  <script src="js/parser.js?v=8"></script>
+  <script src="js/app.js?v=30"></script>
+</body>
+</html>

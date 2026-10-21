@@ -1,0 +1,26 @@
+# temp / office locks
+~$*
+*.tmp
+Thumbs.db
+Desktop.ini
+
+# local extract / drafts
+_pptx_extract/
+_extract_pptx.py
+_pptx_text.txt
+_inspect_ret.json
+
+# source excel / ppt (배포본은 data-store.js에 공시 반영됨)
+*.xlsx
+*.xls
+*.pptx
+*.ppt
+
+# optional local assets
+screenshots/
+
+# secrets / env
+.env
+.env.*
+*.pem
+credentials.json
