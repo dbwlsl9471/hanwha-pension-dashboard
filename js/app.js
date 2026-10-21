@@ -75,17 +75,115 @@
     const s = (n >= 0 ? "+" : "") + fmt(n);
     return s + "%p";
   }
+  function fmtPctChg(n) {
+    if (n == null || Number.isNaN(n)) return "—";
+    return (n >= 0 ? "+" : "") + fmt(n) + "%";
+  }
+  function valCls(n) {
+    if (n == null || Number.isNaN(n) || Math.abs(n) < 1e-9) return "";
+    return n > 0 ? "val-up" : "val-down";
+  }
+  function kpiLine(label, valueHtml, cls) {
+    return `<div class="kpi-line"><span class="k">${label}</span><span class="v ${cls || ""}">${valueHtml}</span></div>`;
+  }
+  function sumPlanAum(indexed, plan, sectorFilter) {
+    let s = 0;
+    for (const e of indexed.values()) {
+      if (sectorFilter && sectorFilter !== "전체" && e.sector !== sectorFilter) continue;
+      s += Calc.totalAum(e, plan) || 0;
+    }
+    return s;
+  }
+  function sumAllPlansAum(indexed, sectorFilter) {
+    return (
+      sumPlanAum(indexed, "DB", sectorFilter) +
+      sumPlanAum(indexed, "DC", sectorFilter) +
+      sumPlanAum(indexed, "IRP", sectorFilter)
+    );
+  }
+  function aumRankOf(indexed, plan, sector, name) {
+    const list = [];
+    for (const e of indexed.values()) {
+      if (sector && sector !== "전체" && e.sector !== sector) continue;
+      const a = Calc.totalAum(e, plan);
+      if (a == null) continue;
+      list.push({ name: e.name, aum: a });
+    }
+    list.sort((a, b) => b.aum - a.aum);
+    const i = list.findIndex((r) => r.name === name);
+    if (i < 0) return { rank: null, n: list.length };
+    return { rank: i + 1, n: list.length, aum: list[i].aum };
+  }
 
-  function defaultsQuarterFor(baseQ) {
-    const keys = Calc.sortQuarters(Object.keys(state.data.defaults || {}));
+  function dataKeys(kind) {
+    const bag = (state.data && state.data[kind]) || {};
+    const keys = Object.keys(bag).filter((k) => Array.isArray(bag[k]) && bag[k].length > 0);
+    if (kind === "fees") return keys.sort();
+    return Calc.sortQuarters(keys);
+  }
+
+  /** 선택 분기에 데이터가 없으면 그 이전·없으면 최신 공시 분기 */
+  function resolveDataKey(kind, preferred) {
+    const keys = dataKeys(kind);
     if (!keys.length) return null;
-    if (baseQ && state.data.defaults[baseQ]) return baseQ;
-    // 기준 분기 이전이면 가장 가까운 이전 분기
-    if (baseQ) {
-      const earlier = keys.filter((k) => k <= baseQ);
+    if (preferred && keys.includes(preferred)) return preferred;
+    if (preferred) {
+      const earlier = keys.filter((k) => k <= preferred);
       if (earlier.length) return earlier[earlier.length - 1];
     }
     return keys[keys.length - 1];
+  }
+
+  function defaultsQuarterFor(baseQ) {
+    return resolveDataKey("defaults", baseQ);
+  }
+
+  function returnsQuarterFor(baseQ) {
+    return resolveDataKey("returns", baseQ);
+  }
+
+  function feesYearFor(year) {
+    return resolveDataKey("fees", year);
+  }
+
+  function formatPeriodLabel(q) {
+    if (!q) return "—";
+    if (/^\d{4}Q[1-4]$/.test(q)) return q.replace("Q", "년 ") + "분기";
+    return q + (String(q).length === 4 ? "년" : "");
+  }
+
+  /** 페이지별·데이터별로 빈 기간이면 최신 공시로 맞춤 */
+  function ensureLatestPeriodFilters() {
+    const f = state.filters;
+    if (state.page === "defaults") {
+      const dKeys = dataKeys("defaults");
+      if (dKeys.length) {
+        if (!dKeys.includes(f.baseQ)) f.baseQ = dKeys[dKeys.length - 1];
+        if (f.cmpQ && !dKeys.includes(f.cmpQ)) {
+          const bi = dKeys.indexOf(f.baseQ);
+          f.cmpQ = bi > 0 ? dKeys[bi - 1] : dKeys.length > 1 ? dKeys[dKeys.length - 2] : null;
+        }
+      }
+    } else if (state.page === "fees") {
+      const yKeys = dataKeys("fees");
+      if (yKeys.length && !yKeys.includes(f.feeYear)) f.feeYear = yKeys[yKeys.length - 1];
+      if (f.feeCmpYear && yKeys.length && !yKeys.includes(f.feeCmpYear)) {
+        const yi = yKeys.indexOf(f.feeYear);
+        f.feeCmpYear = yi > 0 ? yKeys[yi - 1] : yKeys.length > 1 ? yKeys[yKeys.length - 2] : null;
+      }
+      const rq = returnsQuarterFor(f.baseQ);
+      if (rq) f.baseQ = rq;
+    } else {
+      const rq = returnsQuarterFor(f.baseQ);
+      if (rq) f.baseQ = rq;
+      if (f.cmpQ) {
+        const cq = returnsQuarterFor(f.cmpQ);
+        if (cq) f.cmpQ = cq;
+        else f.cmpQ = null;
+      }
+    }
+    const fy = feesYearFor(f.feeYear);
+    if (fy) f.feeYear = fy;
   }
 
   function defaultRetOf(name, quarter, risk, doPeriod) {
@@ -133,19 +231,15 @@
     if (!state.filters.competitors.length) {
       state.filters.competitors = (base.meta.competitors_default || []).slice(0, MAX_COMPETITORS);
     }
-    const qs = Calc.sortQuarters(Object.keys(base.returns || {}));
-    // 기준·비교 분기는 사용자가 자유롭게 선택 (최초 로드 시에만 기본값)
-    if (!state.filters.baseQ || !qs.includes(state.filters.baseQ)) {
-      state.filters.baseQ = qs[qs.length - 1] || null;
-    }
-    if (state.filters.cmpQ && !qs.includes(state.filters.cmpQ)) {
+    // 항상 데이터가 있는 가장 최신 분기·연도를 기본값으로
+    const qs = dataKeys("returns");
+    state.filters.baseQ = qs[qs.length - 1] || null;
+    if (qs.length > 1) {
+      state.filters.cmpQ = qs[qs.length - 2];
+    } else {
       state.filters.cmpQ = null;
     }
-    if (state.filters.cmpQ == null && qs.length > 1) {
-      const bi = qs.indexOf(state.filters.baseQ);
-      state.filters.cmpQ = bi > 0 ? qs[bi - 1] : qs[qs.length - 2];
-    }
-    const ys = Object.keys(base.fees || {}).sort();
+    const ys = dataKeys("fees");
     state.filters.feeYear = ys[ys.length - 1] || null;
     state.filters.feeCmpYear = ys.length > 1 ? ys[ys.length - 2] : null;
   }
@@ -183,7 +277,17 @@
 
   function syncFilterControls() {
     const f = state.filters;
-    const qs = Calc.sortQuarters(Object.keys(state.data.returns || {}));
+    ensureLatestPeriodFilters();
+    const retQs = dataKeys("returns");
+    const defQs = dataKeys("defaults");
+    const qs =
+      state.page === "defaults"
+        ? defQs.length
+          ? defQs
+          : retQs
+        : retQs.length
+          ? retQs
+          : Calc.sortQuarters(Object.keys(state.data.returns || {}));
     const qOpts = qs.map((q) => [q, q.replace("Q", "년 ") + "분기"]);
     fillSelect($("#fBaseQ"), qOpts, f.baseQ);
     fillSelect($("#fCmpQ"), [["", "없음"], ...qOpts], f.cmpQ || "");
@@ -250,7 +354,8 @@
       ],
       f.doPeriod
     );
-    const ys = Object.keys(state.data.fees || {}).sort();
+    const feeYs = dataKeys("fees");
+    const ys = feeYs.length ? feeYs : Object.keys(state.data.fees || {}).sort();
     fillSelect(
       $("#fFeeYear"),
       ys.map((y) => [y, y + "년"]),
@@ -284,7 +389,8 @@
     const f = state.filters;
     const bySector = { 증권: [], 은행: [], 생보: [], 손보: [], 기타: [] };
     const seen = new Set();
-    const rows = state.data.returns[f.baseQ] || [];
+    const q = returnsQuarterFor(f.baseQ) || f.baseQ;
+    const rows = state.data.returns[q] || [];
     rows.forEach((r) => {
       if (!r.name || r.name === COMPANY || seen.has(r.name)) return;
       seen.add(r.name);
@@ -381,7 +487,7 @@
     const showRet = ["summary", "sector", "plan", "period"].includes(p);
     const showDo = p === "defaults";
     const showFee = p === "fees";
-    const showQuarter = showRet || showDo || showFee;
+    const showQuarter = showRet || showDo;
     const showSector = ["summary", "sector", "plan", "period", "defaults"].includes(p);
     const showCompPick = showRet || showDo;
     $("#filterCommon").classList.toggle("hidden", p === "data");
@@ -519,7 +625,9 @@
   /* ---------- pages ---------- */
   function renderSummary() {
     const f = state.filters;
-    const indexed = Calc.indexReturns(state.data.returns[f.baseQ] || []);
+    const baseQ = returnsQuarterFor(f.baseQ) || f.baseQ;
+    const cmpQ = f.cmpQ ? returnsQuarterFor(f.cmpQ) : null;
+    const indexed = Calc.indexReturns(state.data.returns[baseQ] || []);
     const ranked = Calc.rankList(indexed, {
       plan: f.plan,
       type: f.type,
@@ -529,7 +637,7 @@
       avgMode: f.avgMode,
     });
     const me = Calc.findRank(ranked, COMPANY);
-    const prevIndexed = f.cmpQ ? Calc.indexReturns(state.data.returns[f.cmpQ] || []) : null;
+    const prevIndexed = cmpQ ? Calc.indexReturns(state.data.returns[cmpQ] || []) : null;
     const prevRanked = prevIndexed
       ? Calc.rankList(prevIndexed, {
           plan: f.plan,
@@ -542,32 +650,125 @@
       : null;
     const mePrev = prevRanked ? Calc.findRank(prevRanked, COMPANY) : null;
 
-    // total aum securities / all
-    let sectorAum = 0;
-    let myAum = 0;
-    for (const e of indexed.values()) {
-      if (f.sector !== "전체" && e.sector !== f.sector) continue;
-      const t = Calc.totalAum(e, f.plan);
-      if (t != null) sectorAum += t;
-      if (e.name === COMPANY) myAum = t || 0;
-    }
-    const share = sectorAum ? (myAum / sectorAum) * 100 : null;
+    const secLabel = f.sector === "전체" ? "증권" : f.sector;
+    const secForRank = f.sector === "전체" ? "증권" : f.sector;
 
-    // fee
-    const feeRows = state.data.fees[f.feeYear] || [];
-    const feeMe = feeRows.find((r) => r.name === COMPANY);
-    const feeVal = feeMe ? Calc.feeRate(feeMe, f.plan) : null;
+    // 1) 총적립금: 전체 사업자 · 전 제도
+    const totalAllPlans = sumAllPlansAum(indexed, "전체");
+    const prevTotalAll = prevIndexed ? sumAllPlansAum(prevIndexed, "전체") : null;
+    const totalChg =
+      prevTotalAll && prevTotalAll > 0 ? ((totalAllPlans - prevTotalAll) / prevTotalAll) * 100 : null;
+    const providerN = new Set([...indexed.keys()]).size;
+    $("#kpiTotal").textContent = fmtAum(totalAllPlans);
+    $("#kpiTotal").className = "value";
+    $("#kpiTotalMeta").innerHTML =
+      kpiLine("비교 시점 대비", fmtPctChg(totalChg), valCls(totalChg)) +
+      kpiLine("사업자 수", providerN ? `${providerN}곳` : "—");
 
-    $("#kpiTotal").textContent = fmtAum(sectorAum);
+    // 2) 당사 적립금 (선택 제도)
+    const myAum = Calc.totalAum(indexed.get(COMPANY), f.plan) || 0;
+    const prevMyAum = prevIndexed ? Calc.totalAum(prevIndexed.get(COMPANY), f.plan) || 0 : null;
+    const myAumChg =
+      prevMyAum != null && prevMyAum > 0 ? ((myAum - prevMyAum) / prevMyAum) * 100 : null;
+    const secAum = sumPlanAum(indexed, f.plan, secForRank);
+    const allAum = sumPlanAum(indexed, f.plan, "전체");
+    const shareSec = secAum > 0 ? (myAum / secAum) * 100 : null;
+    const shareAll = allAum > 0 ? (myAum / allAum) * 100 : null;
+    const aumRk = aumRankOf(indexed, f.plan, secForRank, COMPANY);
     $("#kpiMyAum").textContent = fmtAum(myAum);
-    $("#kpiMyAumSub").textContent = share != null ? `점유율 ${fmt(share)}%` : "—";
-    $("#kpiRet").textContent = me ? fmtPct(me.ret) : "—";
-    $("#kpiRetSub").innerHTML = me
-      ? `${f.sector} ${me.rank}위 / ${ranked.n} · ${deltaHtml(me.rank, mePrev && mePrev.rank)}`
-      : "데이터 없음";
-    $("#kpiGap").textContent = me && ranked.avg != null ? fmtPp(me.ret - ranked.avg) : "—";
-    $("#kpiFee").textContent = feeVal != null ? fmt(feeVal, 3) + "%" : "—";
-    $("#kpiFeeSub").textContent = f.feeYear ? `${f.feeYear}년 · ${f.plan}` : "수수료 연도 없음";
+    $("#kpiMyAum").className = "value";
+    $("#kpiMyAumMeta").innerHTML =
+      kpiLine(
+        `${secLabel} 업권 내 순위`,
+        aumRk.rank != null ? `${aumRk.rank}위 / ${aumRk.n}` : "—"
+      ) +
+      kpiLine(`${secLabel} 업권 점유율`, shareSec != null ? fmtPct(shareSec) : "—") +
+      kpiLine("전체 시장 점유율", shareAll != null ? fmtPct(shareAll) : "—") +
+      kpiLine("비교 시점 대비", fmtPctChg(myAumChg), valCls(myAumChg));
+
+    // 3) 당사 수익률
+    const rankedSec = Calc.rankList(indexed, {
+      plan: f.plan,
+      type: f.type,
+      period: f.period,
+      sector: secForRank,
+      minAum: f.minAum,
+      avgMode: f.avgMode,
+    });
+    const meSec = Calc.findRank(rankedSec, COMPANY);
+    const prevRankedSec = prevIndexed
+      ? Calc.rankList(prevIndexed, {
+          plan: f.plan,
+          type: f.type,
+          period: f.period,
+          sector: secForRank,
+          minAum: f.minAum,
+          avgMode: f.avgMode,
+        })
+      : null;
+    const meSecPrev = prevRankedSec ? Calc.findRank(prevRankedSec, COMPANY) : null;
+    const rankedAll = Calc.rankList(indexed, {
+      plan: f.plan,
+      type: f.type,
+      period: f.period,
+      sector: "전체",
+      minAum: f.minAum,
+      avgMode: f.avgMode,
+    });
+    const meAll = Calc.findRank(rankedAll, COMPANY);
+    const typeShort = f.type === "원리금보장(통합)" ? "원리금보장" : f.type;
+    $("#kpiRetLabel").textContent = `· ${f.plan} ${typeShort} ${f.period}년`;
+    $("#kpiRet").textContent = meSec ? fmtPct(meSec.ret) : me ? fmtPct(me.ret) : "—";
+    $("#kpiRet").className = "value";
+    $("#kpiRetMeta").innerHTML =
+      kpiLine(
+        `${secLabel} 업권 내 순위`,
+        meSec
+          ? `${meSec.rank}위 / ${rankedSec.n} ${deltaHtml(meSec.rank, meSecPrev && meSecPrev.rank)}`
+          : "—"
+      ) +
+      kpiLine(
+        "전체 순위(보조)",
+        meAll ? `${meAll.rank}위 / ${rankedAll.n}` : "—"
+      );
+
+    // 4) 평균 대비
+    const gapSec =
+      meSec && rankedSec.avg != null ? meSec.ret - rankedSec.avg : null;
+    const gapAll = meAll && rankedAll.avg != null ? meAll.ret - rankedAll.avg : null;
+    const top = rankedSec.list[0] || null;
+    const gapTop = meSec && top && top.ret != null ? meSec.ret - top.ret : null;
+    const gapEl = $("#kpiGap");
+    gapEl.textContent = gapSec != null ? fmtPp(gapSec) : "—";
+    gapEl.className = "value " + valCls(gapSec);
+    $("#kpiGapMeta").innerHTML =
+      kpiLine(`${secLabel} 업권 평균`, rankedSec.avg != null ? fmtPct(rankedSec.avg) : "—") +
+      kpiLine("전체 평균", rankedAll.avg != null ? fmtPct(rankedAll.avg) : "—") +
+      (gapAll != null ? kpiLine("전체 평균 대비", fmtPp(gapAll), valCls(gapAll)) : "") +
+      kpiLine(
+        top ? `1위 대비 (${top.name})` : "1위 대비",
+        gapTop != null ? fmtPp(gapTop) : "—",
+        valCls(gapTop)
+      );
+
+    // 5) 수수료
+    const feeYear = feesYearFor(f.feeYear) || f.feeYear;
+    const feeRows = state.data.fees[feeYear] || [];
+    const feeList = Calc.rankFees(feeRows, f.plan, secForRank);
+    const feeMeRow = feeList.find((r) => r.name === COMPANY);
+    const feeVal = feeMeRow ? feeMeRow.rate : null;
+    const feeAvg = feeList.length
+      ? feeList.reduce((a, b) => a + b.rate, 0) / feeList.length
+      : null;
+    $("#kpiFeeLabel").textContent = feeYear ? `· ${f.plan} ${feeYear}년` : `· ${f.plan}`;
+    $("#kpiFee").textContent = feeVal != null ? fmt(feeVal, 2) + "%" : "—";
+    $("#kpiFee").className = "value";
+    $("#kpiFeeMeta").innerHTML =
+      kpiLine(
+        "업권 내 순위(낮을수록 1위)",
+        feeMeRow ? `${feeMeRow.rank}위 / ${feeList.length}` : "—"
+      ) +
+      kpiLine(`${secLabel} 업권 평균`, feeAvg != null ? fmt(feeAvg, 2) + "%" : "—");
 
     // rank matrix 제도×유형×기간 (1·3·5·7·10년, 제도 병합)
     const plans = ["DB", "DC", "IRP"];
@@ -755,7 +956,8 @@
     // 경쟁사 비교: 업권 순위 + 비중 + 순위변동 + 평균 대비 %p
     const names = [COMPANY, ...f.competitors];
     const typeCols = ["예금성", "시장성", "실적배당형"];
-    const feeRowsAll = state.data.fees[f.feeYear] || [];
+    const feeYearEff = feesYearFor(f.feeYear) || f.feeYear;
+    const feeRowsAll = state.data.fees[feeYearEff] || [];
 
     const aumPool = [];
     let sectorAumSum = 0;
@@ -807,7 +1009,7 @@
             `<th>${t}<br><span class="th-sub">업권순위 · 평균대비</span></th>`
         )
         .join("")}
-      <th>수수료(${f.feeYear || "—"})<br><span class="th-sub">업권순위</span></th>
+      <th>수수료(${feeYearEff || "—"})<br><span class="th-sub">업권순위</span></th>
     </tr></thead><tbody>`;
 
     for (const n of names) {
@@ -865,14 +1067,16 @@
     $("#compTable").innerHTML = chtml;
     const noteEl = $("#compNote");
     if (noteEl) {
-      noteEl.textContent = `${f.sector} 업권 순위 · ${f.plan} · ${f.period}년 · 비교 ${f.cmpQ || "없음"} 대비 ▲▼ · 평균대비 %p · 수수료 낮을수록 상위(${f.feeYear || "—"}년)`;
+      noteEl.textContent = `${f.sector} 업권 순위 · ${f.plan} · ${f.period}년 · 비교 ${cmpQ || "없음"} 대비 ▲▼ · 평균대비 %p · 수수료 낮을수록 상위(${feeYearEff || "—"}년)`;
     }
   }
 
   function renderSector() {
     const f = state.filters;
     const sectors = ["은행", "증권", "생보", "손보"];
-    const indexed = Calc.indexReturns(state.data.returns[f.baseQ] || []);
+    const baseQ = returnsQuarterFor(f.baseQ) || f.baseQ;
+    const cmpQ = f.cmpQ ? returnsQuarterFor(f.cmpQ) : null;
+    const indexed = Calc.indexReturns(state.data.returns[baseQ] || []);
     const avgs = sectors.map((s) => {
       const rk = Calc.rankList(indexed, {
         plan: f.plan,
@@ -980,7 +1184,7 @@
       minAum: f.minAum,
       avgMode: f.avgMode,
     });
-    const prevIndexed = f.cmpQ ? Calc.indexReturns(state.data.returns[f.cmpQ] || []) : null;
+    const prevIndexed = cmpQ ? Calc.indexReturns(state.data.returns[cmpQ] || []) : null;
     const prevRanked = prevIndexed
       ? Calc.rankList(prevIndexed, {
           plan: f.plan,
@@ -1007,7 +1211,8 @@
 
   function renderPlan() {
     const f = state.filters;
-    const indexed = Calc.indexReturns(state.data.returns[f.baseQ] || []);
+    const baseQ = returnsQuarterFor(f.baseQ) || f.baseQ;
+    const indexed = Calc.indexReturns(state.data.returns[baseQ] || []);
     const plans = ["DB", "DC", "IRP"];
     const me = [];
     const sec = [];
@@ -1214,7 +1419,8 @@
 
   function renderPeriod() {
     const f = state.filters;
-    const indexed = Calc.indexReturns(state.data.returns[f.baseQ] || []);
+    const baseQ = returnsQuarterFor(f.baseQ) || f.baseQ;
+    const indexed = Calc.indexReturns(state.data.returns[baseQ] || []);
     const periods = ["1", "3", "5", "7", "10"];
     const periodRankOpts = (period, sector) => ({
       plan: f.plan,
@@ -1299,11 +1505,10 @@
       periodCurveNote.textContent = `${f.plan} · ${f.type} · 3년 이상 연환산 · 당사·증권업·전체 + 선택 경쟁사. 범례 클릭으로 선 on/off`;
     }
 
-    const prevIndexed = f.cmpQ ? Calc.indexReturns(state.data.returns[f.cmpQ] || []) : null;
+    const cmpQ = f.cmpQ ? returnsQuarterFor(f.cmpQ) : null;
+    const prevIndexed = cmpQ ? Calc.indexReturns(state.data.returns[cmpQ] || []) : null;
     const sectorRankLabel = f.sector === "전체" ? "전체 순위" : `${f.sector} 순위`;
-    const cmpLabel = f.cmpQ
-      ? f.cmpQ.replace("Q", "년 ") + "분기"
-      : "비교분기 없음";
+    const cmpLabel = cmpQ ? formatPeriodLabel(cmpQ) : "비교분기 없음";
     const periodMeNote = $("#periodMeNote");
     if (periodMeNote) {
       periodMeNote.textContent = `${f.plan} · ${f.type} · ${
@@ -1396,7 +1601,9 @@
 
   function renderDefaults() {
     const f = state.filters;
-    const rows = state.data.defaults[f.baseQ] || [];
+    const doQ = defaultsQuarterFor(f.baseQ) || f.baseQ;
+    const doCmpQ = f.cmpQ ? defaultsQuarterFor(f.cmpQ) : null;
+    const rows = state.data.defaults[doQ] || [];
     const list = Calc.aggregateDefaults(rows, f.risk, f.doPeriod).filter(
       (r) => f.sector === "전체" || r.sector === f.sector
     );
@@ -1406,6 +1613,7 @@
     const doPeriodLabel =
       ({ "1m": "1개월", "3m": "3개월", "6m": "6개월", "1y": "1년", "3y": "3년" }[f.doPeriod] ||
         f.doPeriod);
+    const doQLabel = formatPeriodLabel(doQ);
 
     function weightedDoAvg(filterFn, risk) {
       const sub = Calc.aggregateDefaults(rows, risk, f.doPeriod).filter(filterFn);
@@ -1451,7 +1659,7 @@
     });
     const doAvgNote = $("#doAvgNote");
     if (doAvgNote) {
-      doAvgNote.textContent = `${doPeriodLabel} · 적립금 가중평균 · 회색 = 전체 평균`;
+      doAvgNote.textContent = `${doQLabel} · ${doPeriodLabel} · 적립금 가중평균 · 회색 = 전체 평균`;
     }
 
     // 위험등급별 적립금 구성 — 당사·업권·전체 가로 100% 누적
@@ -1532,14 +1740,13 @@
     });
     const doAumNote = $("#doAumNote");
     if (doAumNote) {
-      const qLabel = f.baseQ ? f.baseQ.replace("Q", "년 ") + "분기" : "";
-      doAumNote.textContent = qLabel
-        ? `${qLabel} 기준 · 당사·업권·전체 위험등급 비중(100%)`
+      doAumNote.textContent = doQ
+        ? `${doQLabel} 기준 · 당사·업권·전체 위험등급 비중(100%)`
         : "당사·업권·전체 위험등급 비중(100%)";
     }
 
     // 수익률 추이: 당사 · 증권업 · 전체 · 경쟁사 (선택 위험등급·기간)
-    const doQs = Calc.sortQuarters(Object.keys(state.data.defaults || {})).slice(-8);
+    const doQs = dataKeys("defaults").slice(-8);
     const doTrendSeries = [
       {
         label: "당사",
@@ -1611,7 +1818,7 @@
       doTrendNote.textContent = `${f.risk} · ${doPeriodLabel} · 당사·증권업·전체 + 선택 경쟁사. 범례 클릭으로 선 on/off`;
     }
 
-    const prevRows = f.cmpQ ? state.data.defaults[f.cmpQ] || [] : [];
+    const prevRows = doCmpQ && doCmpQ !== doQ ? state.data.defaults[doCmpQ] || [] : [];
     const prevList = Calc.aggregateDefaults(prevRows, f.risk, f.doPeriod).filter(
       (r) => f.sector === "전체" || r.sector === f.sector
     );
@@ -1635,13 +1842,11 @@
     }
 
     const sectorLabel = f.sector === "전체" ? "전체" : f.sector;
-    const cmpLabel = f.cmpQ
-      ? f.cmpQ.replace("Q", "년 ") + "분기"
-      : "비교분기 없음";
+    const cmpLabel = doCmpQ ? formatPeriodLabel(doCmpQ) : "비교분기 없음";
 
     const titleEl = $("#doRankTitle");
     if (titleEl) {
-      titleEl.innerHTML = `${sectorLabel} 디폴트옵션 순위표 · ${f.risk} <button class="btn" data-export-table="tblDo" data-filename="디폴트순위.xlsx">엑셀</button>`;
+      titleEl.innerHTML = `${sectorLabel} 디폴트옵션 순위표 · ${doQLabel} · ${f.risk} <button class="btn" data-export-table="tblDo" data-filename="디폴트순위.xlsx">엑셀</button>`;
     }
 
     let html = `<table class="data do-rank-table" id="tblDo"><thead><tr>
@@ -1695,15 +1900,18 @@
     html += `</tbody></table>`;
     $("#doRank").innerHTML = html;
     $("#doNote").textContent =
-      `${sortCol.label} 수익률 기준 순위(●) · ${sectorLabel} 평균 ${fmt(sectorAvg)}% · 변동은 ${cmpLabel} 대비 · 누적 수익률(연환산 아님)`;
+      `${doQLabel} · ${sortCol.label} 수익률 기준 순위(●) · ${sectorLabel} 평균 ${fmt(sectorAvg)}% · 변동은 ${cmpLabel} 대비 · 누적 수익률(연환산 아님)`;
   }
 
   function renderFees() {
     const f = state.filters;
-    const rows = state.data.fees[f.feeYear] || [];
+    const feeYear = feesYearFor(f.feeYear) || f.feeYear;
+    const feeCmpYear = f.feeCmpYear ? feesYearFor(f.feeCmpYear) : null;
+    const baseQ = returnsQuarterFor(f.baseQ) || f.baseQ;
+    const rows = state.data.fees[feeYear] || [];
     const list = Calc.rankFees(rows, f.feePlan, f.feeSector);
-    const prevList = f.feeCmpYear
-      ? Calc.rankFees(state.data.fees[f.feeCmpYear] || [], f.feePlan, f.feeSector)
+    const prevList = feeCmpYear
+      ? Calc.rankFees(state.data.fees[feeCmpYear] || [], f.feePlan, f.feeSector)
       : [];
 
     const sectors = ["은행", "증권", "생보", "손보"];
@@ -1722,7 +1930,7 @@
     });
 
     // scatter fee vs return
-    const indexed = Calc.indexReturns(state.data.returns[f.baseQ] || []);
+    const indexed = Calc.indexReturns(state.data.returns[baseQ] || []);
     const scatterSector = $("#feeScatterScope").value || f.feeSector;
     const points = [];
     for (const fee of Calc.rankFees(rows, f.feePlan, scatterSector === "전체업권" ? "전체" : scatterSector)) {
@@ -1766,10 +1974,7 @@
     });
 
     // 적립금: 수익률 공시(기준분기 또는 최신)의 선택 제도 합계
-    const retQs = Calc.sortQuarters(Object.keys(state.data.returns || {}));
-    const aumQ =
-      (f.baseQ && state.data.returns[f.baseQ] ? f.baseQ : null) ||
-      (retQs.length ? retQs[retQs.length - 1] : null);
+    const aumQ = baseQ || returnsQuarterFor(null);
     const aumIndexed = Calc.indexReturns(state.data.returns[aumQ] || []);
 
     let feeAvg = null;
@@ -1778,17 +1983,17 @@
     }
     const prevRankMap = new Map(prevList.map((x) => [x.name, x.rank]));
     const sectorLabel = f.feeSector === "전체" ? "전체" : f.feeSector;
-    const cmpLabel = f.feeCmpYear ? `${f.feeCmpYear}년` : "비교연도 없음";
+    const cmpLabel = feeCmpYear ? `${feeCmpYear}년` : "비교연도 없음";
     const aumColLabel = `${f.feePlan} 적립금(억원)`;
 
     const feeTitle = $("#feeRankTitle");
     if (feeTitle) {
-      feeTitle.innerHTML = `${sectorLabel} 수수료 순위표 · ${f.feeYear || "—"} · ${f.feePlan} <button class="btn" data-export-table="tblFee" data-filename="수수료순위.xlsx">엑셀</button>`;
+      feeTitle.innerHTML = `${sectorLabel} 수수료 순위표 · ${feeYear || "—"} · ${f.feePlan} <button class="btn" data-export-table="tblFee" data-filename="수수료순위.xlsx">엑셀</button>`;
     }
     const feeNote = $("#feeNote");
     if (feeNote) {
       feeNote.textContent = `수수료 낮을수록 1위 · ${sectorLabel} 평균 ${fmt(feeAvg, 2)}% · 변동은 ${cmpLabel} 대비 · 적립금은 ${
-        aumQ ? aumQ.replace("Q", "년 ") + "분기" : "—"
+        aumQ ? formatPeriodLabel(aumQ) : "—"
       } ${f.feePlan} 기준`;
     }
 
@@ -2139,7 +2344,10 @@
       pdfBtn.style.display = state.page === "data" ? "none" : "";
     }
     applyFilterVisibility();
-    if (state.page !== "data") renderCompetitors();
+    if (state.page !== "data") {
+      syncFilterControls();
+      renderCompetitors();
+    }
     try {
       if (state.page === "summary") renderSummary();
       else if (state.page === "sector") renderSector();

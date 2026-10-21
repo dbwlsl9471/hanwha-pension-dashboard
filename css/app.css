@@ -249,21 +249,59 @@ button, select, input { font-family: inherit; }
   grid-column: auto;
   min-width: 0;
 }
+.kpi-card { padding: 12px 14px; }
 .kpi {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-height: 88px;
+  gap: 6px;
+  min-height: 132px;
 }
-.kpi .label { font-size: 0.75rem; color: var(--muted); }
+.kpi .label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.35;
+  font-weight: 600;
+}
+.kpi .label-hint { font-weight: 500; color: #8a97a5; }
+.kpi .me-dot { color: var(--accent); margin-right: 2px; }
 .kpi .value {
-  font-size: clamp(1rem, 1.6vw, 1.25rem);
-  font-weight: 700;
+  font-size: clamp(1.15rem, 1.8vw, 1.45rem);
+  font-weight: 800;
   letter-spacing: -0.03em;
   word-break: keep-all;
-  overflow-wrap: anywhere;
+  color: var(--ink);
+  line-height: 1.15;
 }
+.kpi .value.val-up { color: var(--up); }
+.kpi .value.val-down { color: var(--down); }
 .kpi .sub { font-size: 0.78rem; color: var(--muted); line-height: 1.35; }
+.kpi-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid #eef1f4;
+}
+.kpi-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.kpi-line .k { flex: 1; min-width: 0; }
+.kpi-line .v {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.kpi-line .v.val-up { color: var(--up); }
+.kpi-line .v.val-down { color: var(--down); }
 
 @media (max-width: 1100px) {
   .kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }

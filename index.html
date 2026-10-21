@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>한화투자증권 · 퇴직연금 공시 비교</title>
-  <link rel="stylesheet" href="css/app.css?v=23" />
+  <link rel="stylesheet" href="css/app.css?v=24" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -35,6 +35,8 @@
   </nav>
 
   <section class="filters" id="filterCommon">
+    <div class="field only-fees hidden"><label>기준 연도</label><select id="fFeeYear"></select></div>
+    <div class="field only-fees hidden"><label>비교 연도</label><select id="fFeeCmpYear"></select></div>
     <div class="field only-quarter"><label>기준 분기 (직접 선택)</label><select id="fBaseQ"></select></div>
     <div class="field only-quarter"><label>비교 분기 (직접 선택)</label><select id="fCmpQ"></select></div>
     <div class="field only-common"><label>제도</label><select id="fPlan"></select></div>
@@ -51,8 +53,6 @@
     <div class="field only-defaults hidden"><label>위험등급</label><select id="fRisk"></select></div>
     <div class="field only-defaults hidden"><label>수익률 기간</label><select id="fDoPeriod"></select></div>
 
-    <div class="field only-fees hidden"><label>기준 연도</label><select id="fFeeYear"></select></div>
-    <div class="field only-fees hidden"><label>비교 연도</label><select id="fFeeCmpYear"></select></div>
     <div class="field only-fees hidden"><label>업권</label><select id="fFeeSector"></select></div>
     <div class="field only-fees hidden"><label>제도</label><select id="fFeePlan"></select></div>
 
@@ -69,11 +69,41 @@
       </div>
       <div class="grid">
         <div class="kpi-row span-12">
-          <div class="card"><div class="kpi"><span class="label">업권 총적립금</span><span class="value" id="kpiTotal">—</span><span class="sub">선택 제도 합계</span></div></div>
-          <div class="card"><div class="kpi"><span class="label">당사 적립금</span><span class="value" id="kpiMyAum">—</span><span class="sub" id="kpiMyAumSub">—</span></div></div>
-          <div class="card"><div class="kpi"><span class="label">당사 수익률</span><span class="value" id="kpiRet">—</span><span class="sub" id="kpiRetSub">—</span></div></div>
-          <div class="card"><div class="kpi"><span class="label">평균 대비</span><span class="value" id="kpiGap">—</span><span class="sub">업권 평균 대비 %p</span></div></div>
-          <div class="card"><div class="kpi"><span class="label">당사 수수료</span><span class="value" id="kpiFee">—</span><span class="sub" id="kpiFeeSub">—</span></div></div>
+          <div class="card kpi-card">
+            <div class="kpi">
+              <span class="label">총적립금 <span class="label-hint">(전체 사업자·전 제도)</span></span>
+              <span class="value" id="kpiTotal">—</span>
+              <div class="kpi-meta" id="kpiTotalMeta"></div>
+            </div>
+          </div>
+          <div class="card kpi-card">
+            <div class="kpi">
+              <span class="label"><span class="me-dot">●</span> 당사 적립금</span>
+              <span class="value" id="kpiMyAum">—</span>
+              <div class="kpi-meta" id="kpiMyAumMeta"></div>
+            </div>
+          </div>
+          <div class="card kpi-card">
+            <div class="kpi">
+              <span class="label"><span class="me-dot">●</span> 당사 수익률 <span class="label-hint" id="kpiRetLabel"></span></span>
+              <span class="value" id="kpiRet">—</span>
+              <div class="kpi-meta" id="kpiRetMeta"></div>
+            </div>
+          </div>
+          <div class="card kpi-card">
+            <div class="kpi">
+              <span class="label">평균 대비 <span class="label-hint">(당사 − 업권 평균)</span></span>
+              <span class="value" id="kpiGap">—</span>
+              <div class="kpi-meta" id="kpiGapMeta"></div>
+            </div>
+          </div>
+          <div class="card kpi-card">
+            <div class="kpi">
+              <span class="label"><span class="me-dot">●</span> 당사 수수료 비용부담률 <span class="label-hint" id="kpiFeeLabel"></span></span>
+              <span class="value" id="kpiFee">—</span>
+              <div class="kpi-meta" id="kpiFeeMeta"></div>
+            </div>
+          </div>
         </div>
 
         <div class="card span-12">
@@ -315,6 +345,6 @@
   <script src="js/data-store.js?v=7"></script>
   <script src="js/calc.js?v=9"></script>
   <script src="js/parser.js?v=8"></script>
-  <script src="js/app.js?v=30"></script>
+  <script src="js/app.js?v=33"></script>
 </body>
 </html>
