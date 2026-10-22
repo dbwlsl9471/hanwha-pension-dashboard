@@ -70,6 +70,11 @@
   function fmtPct(n) {
     return n == null ? "—" : fmt(n) + "%";
   }
+  /** 순위 표기: 12위/14개 */
+  function fmtRank(rank, n) {
+    if (rank == null || n == null) return "—";
+    return `${rank}위/${n}개`;
+  }
   function fmtPp(n) {
     if (n == null) return "—";
     const s = (n >= 0 ? "+" : "") + fmt(n);
@@ -110,9 +115,10 @@
       list.push({ name: e.name, aum: a });
     }
     list.sort((a, b) => b.aum - a.aum);
-    const i = list.findIndex((r) => r.name === name);
-    if (i < 0) return { rank: null, n: list.length };
-    return { rank: i + 1, n: list.length, aum: list[i].aum };
+    Calc.assignCompetitionRanks(list, (row) => row.aum);
+    const hit = list.find((r) => r.name === name);
+    if (!hit) return { rank: null, n: list.length };
+    return { rank: hit.rank, n: list.length, aum: hit.aum };
   }
 
   function dataKeys(kind) {
@@ -122,28 +128,16 @@
     return Calc.sortQuarters(keys);
   }
 
-  /** 선택 분기에 데이터가 없으면 그 이전·없으면 최신 공시 분기 */
-  function resolveDataKey(kind, preferred) {
-    const keys = dataKeys(kind);
+  /** 선택 연도에 수수료 데이터가 없으면 최신 공시 연도 */
+  function feesYearFor(year) {
+    const keys = dataKeys("fees");
     if (!keys.length) return null;
-    if (preferred && keys.includes(preferred)) return preferred;
-    if (preferred) {
-      const earlier = keys.filter((k) => k <= preferred);
+    if (year && keys.includes(year)) return year;
+    if (year) {
+      const earlier = keys.filter((k) => k <= year);
       if (earlier.length) return earlier[earlier.length - 1];
     }
     return keys[keys.length - 1];
-  }
-
-  function defaultsQuarterFor(baseQ) {
-    return resolveDataKey("defaults", baseQ);
-  }
-
-  function returnsQuarterFor(baseQ) {
-    return resolveDataKey("returns", baseQ);
-  }
-
-  function feesYearFor(year) {
-    return resolveDataKey("fees", year);
   }
 
   function formatPeriodLabel(q) {
@@ -152,38 +146,121 @@
     return q + (String(q).length === 4 ? "년" : "");
   }
 
-  /** 페이지별·데이터별로 빈 기간이면 최신 공시로 맞춤 */
+  function isQuarterKey(q) {
+    return typeof q === "string" && /^\d{4}Q[1-4]$/.test(q);
+  }
+
+  function periodKindForPage() {
+    return state.page === "defaults" ? "defaults" : "returns";
+  }
+
+  function hasPeriodData(kind, key) {
+    if (!key) return false;
+    const rows = ((state.data && state.data[kind]) || {})[key];
+    return Array.isArray(rows) && rows.length > 0;
+  }
+
+  /** 공시분 + 저장키 + 최신 다음 분기(분기말 선택용) */
+  function quarterSelectKeys() {
+    const kind = periodKindForPage();
+    const withData = dataKeys(kind);
+    const stored = Object.keys((state.data && state.data[kind]) || {}).filter(isQuarterKey);
+    let qs = Calc.sortQuarters([...new Set([...withData, ...stored])]);
+    if (!qs.length) {
+      const fallback = kind === "defaults" ? dataKeys("returns") : dataKeys("defaults");
+      qs = [...fallback];
+    }
+    if (qs.length) {
+      const nxt = Calc.nextQuarter(qs[qs.length - 1]);
+      if (nxt) qs = Calc.sortQuarters([...new Set([...qs, nxt])]);
+    }
+    const f = state.filters;
+    [f.baseQ, f.cmpQ].forEach((q) => {
+      if (isQuarterKey(q) && !qs.includes(q)) qs = Calc.sortQuarters([...qs, q]);
+    });
+    return qs;
+  }
+
+  function quarterOptionLabel(q, kind) {
+    const base = q.replace("Q", "년 ") + "분기";
+    return hasPeriodData(kind, q) ? base : `${base} (공시 없음)`;
+  }
+
+  /** 페이지 진입 시: 해당 화면 데이터가 있는 가장 최근 시점 */
+  function applyLatestPeriodForPage() {
+    const f = state.filters;
+    if (state.page === "data") return;
+    if (state.page === "fees") {
+      const yKeys = dataKeys("fees");
+      f.feeYear = yKeys[yKeys.length - 1] || null;
+      f.feeCmpYear = yKeys.length > 1 ? yKeys[yKeys.length - 2] : null;
+      return;
+    }
+    const withData = dataKeys(periodKindForPage());
+    if (!withData.length) return;
+    f.baseQ = withData[withData.length - 1];
+    f.cmpQ = withData.length > 1 ? withData[withData.length - 2] : null;
+  }
+
+  /** 최초/무효 값만 보정. 공시 없는 다음 분기 선택은 유지 */
   function ensureLatestPeriodFilters() {
     const f = state.filters;
-    if (state.page === "defaults") {
-      const dKeys = dataKeys("defaults");
-      if (dKeys.length) {
-        if (!dKeys.includes(f.baseQ)) f.baseQ = dKeys[dKeys.length - 1];
-        if (f.cmpQ && !dKeys.includes(f.cmpQ)) {
-          const bi = dKeys.indexOf(f.baseQ);
-          f.cmpQ = bi > 0 ? dKeys[bi - 1] : dKeys.length > 1 ? dKeys[dKeys.length - 2] : null;
-        }
-      }
-    } else if (state.page === "fees") {
+    if (state.page === "fees") {
       const yKeys = dataKeys("fees");
-      if (yKeys.length && !yKeys.includes(f.feeYear)) f.feeYear = yKeys[yKeys.length - 1];
+      if (!f.feeYear || (yKeys.length && !yKeys.includes(f.feeYear))) {
+        f.feeYear = yKeys[yKeys.length - 1] || null;
+      }
       if (f.feeCmpYear && yKeys.length && !yKeys.includes(f.feeCmpYear)) {
         const yi = yKeys.indexOf(f.feeYear);
         f.feeCmpYear = yi > 0 ? yKeys[yi - 1] : yKeys.length > 1 ? yKeys[yKeys.length - 2] : null;
       }
-      const rq = returnsQuarterFor(f.baseQ);
-      if (rq) f.baseQ = rq;
-    } else {
-      const rq = returnsQuarterFor(f.baseQ);
-      if (rq) f.baseQ = rq;
-      if (f.cmpQ) {
-        const cq = returnsQuarterFor(f.cmpQ);
-        if (cq) f.cmpQ = cq;
-        else f.cmpQ = null;
-      }
+      return;
     }
-    const fy = feesYearFor(f.feeYear);
-    if (fy) f.feeYear = fy;
+    const opts = quarterSelectKeys();
+    const withData = dataKeys(periodKindForPage());
+    if (!f.baseQ || (!opts.includes(f.baseQ) && !isQuarterKey(f.baseQ))) {
+      f.baseQ = withData[withData.length - 1] || opts[opts.length - 1] || null;
+    }
+    if (f.cmpQ && !isQuarterKey(f.cmpQ)) f.cmpQ = null;
+  }
+
+  /** @returns {boolean} 기준 분기 데이터 있으면 true */
+  function applyPeriodAvailability() {
+    const page = state.page;
+    const el = $(`#page-${page}`);
+    if (!el || page === "fees" || page === "data") {
+      if (el) {
+        el.classList.remove("no-period-data");
+        el.querySelector(".empty-period-banner")?.remove();
+      }
+      return true;
+    }
+    const kind = periodKindForPage();
+    const q = state.filters.baseQ;
+    const has = hasPeriodData(kind, q);
+    el.classList.toggle("no-period-data", !has);
+    let banner = el.querySelector(".empty-period-banner");
+    if (!has) {
+      if (!banner) {
+        banner = document.createElement("div");
+        banner.className = "empty-period-banner";
+        const head = el.querySelector(".page-head");
+        if (head) head.after(banner);
+        else el.prepend(banner);
+      }
+      banner.innerHTML =
+        `<strong>해당 시점 공시 데이터 없음</strong>` +
+        `<span>${formatPeriodLabel(q)} 공시가 아직 등록되지 않았습니다. 다른 분기를 선택해 주세요.</span>`;
+      return false;
+    }
+    if (banner) banner.remove();
+    return true;
+  }
+
+  function cmpPeriodNote(kind, cmpQ) {
+    if (!cmpQ) return "비교분기 없음";
+    if (!hasPeriodData(kind, cmpQ)) return "해당 시점 공시 데이터 없음";
+    return formatPeriodLabel(cmpQ);
   }
 
   function defaultRetOf(name, quarter, risk, doPeriod) {
@@ -204,23 +281,106 @@
     return list.reduce((a, b) => a + b.ret * (b.aum || 0), 0) / den;
   }
 
+  function feeRowsHaveSplit(rows) {
+    return (rows || []).some(
+      (r) =>
+        (r.DB && r.DB.ops != null) ||
+        (r.DC && r.DC.ops != null) ||
+        (r.IRP && r.IRP.ops != null)
+    );
+  }
+
+  /** 같은 연도면 운용/자산 분리가 있는 쪽 우선 */
+  function pickFeeYearRows(deployRows, localRows) {
+    if (!localRows) return deployRows;
+    if (!deployRows) return localRows;
+    const dSplit = feeRowsHaveSplit(deployRows);
+    const lSplit = feeRowsHaveSplit(localRows);
+    if (dSplit && !lSplit) return deployRows;
+    return localRows;
+  }
+
+  /** 배포본(APP_DATA) + 로컬 업로드를 분기/연도 키 단위로 병합 (로컬이 배포본을 통째로 가리지 않음) */
+  function mergeDataStores(deploy, local) {
+    const out = JSON.parse(JSON.stringify(deploy || {}));
+    out.returns = out.returns || {};
+    out.defaults = out.defaults || {};
+    out.fees = out.fees || {};
+    out.sources = out.sources || {};
+    out.meta = out.meta || {};
+    if (!local) {
+      state.dataOrigin = "deploy";
+      return out;
+    }
+    out.returns = { ...(deploy.returns || {}), ...(local.returns || {}) };
+    out.defaults = { ...(deploy.defaults || {}), ...(local.defaults || {}) };
+    const feeKeys = new Set([
+      ...Object.keys(deploy.fees || {}),
+      ...Object.keys(local.fees || {}),
+    ]);
+    out.fees = {};
+    feeKeys.forEach((y) => {
+      out.fees[y] = pickFeeYearRows(
+        deploy.fees && deploy.fees[y],
+        local.fees && local.fees[y]
+      );
+    });
+    out.sources = { ...(deploy.sources || {}), ...(local.sources || {}) };
+    out.meta = { ...(deploy.meta || {}), ...(local.meta || {}) };
+    const dAt = deploy.meta && deploy.meta.updatedAt;
+    const lAt = local.meta && local.meta.updatedAt;
+    if (dAt && lAt) out.meta.updatedAt = dAt >= lAt ? dAt : lAt;
+    else out.meta.updatedAt = lAt || dAt || out.meta.updatedAt;
+    state.dataOrigin = "merged";
+    return out;
+  }
+
+  function formatUpdatedAt(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function updateHeaderMeta() {
+    const el = $("#dataMetaShort");
+    if (!el) return;
+    const at = formatUpdatedAt(state.data && state.data.meta && state.data.meta.updatedAt);
+    const origin =
+      state.dataOrigin === "merged"
+        ? "로컬+배포"
+        : state.dataOrigin === "local"
+        ? "로컬"
+        : "배포";
+    el.textContent = at ? `갱신 ${at} · ${origin}` : `공시 데이터 · ${origin}`;
+    el.title =
+      state.dataOrigin === "merged"
+        ? "브라우저에 올린 데이터가 배포본과 병합되어 표시됩니다. 배포본만 보려면 데이터 관리 → 로컬 저장 초기화."
+        : "현재 화면에 로드된 공시 데이터 기준입니다.";
+  }
+
   function loadData() {
-    let base = window.APP_DATA ? JSON.parse(JSON.stringify(window.APP_DATA)) : {
-      meta: { company: COMPANY, competitors_default: [] },
-      returns: {},
-      defaults: {},
-      fees: {},
-      sources: {},
-    };
+    const deploy = window.APP_DATA
+      ? JSON.parse(JSON.stringify(window.APP_DATA))
+      : {
+          meta: { company: COMPANY, competitors_default: [] },
+          returns: {},
+          defaults: {},
+          fees: {},
+          sources: {},
+        };
+    let local = null;
     try {
       const raw = localStorage.getItem(LS_DATA);
       if (raw) {
-        const local = JSON.parse(raw);
-        if (local && local.returns) base = local;
+        const parsed = JSON.parse(raw);
+        if (parsed && (parsed.returns || parsed.defaults || parsed.fees)) local = parsed;
       }
     } catch (e) {
       console.warn(e);
     }
+    const base = mergeDataStores(deploy, local);
     state.data = base;
     try {
       const saved = JSON.parse(localStorage.getItem(LS_COMP) || "[]");
@@ -242,11 +402,19 @@
     const ys = dataKeys("fees");
     state.filters.feeYear = ys[ys.length - 1] || null;
     state.filters.feeCmpYear = ys.length > 1 ? ys[ys.length - 2] : null;
+    updateHeaderMeta();
   }
 
   function persistData() {
     state.data.meta.updatedAt = new Date().toISOString();
-    localStorage.setItem(LS_DATA, JSON.stringify(state.data));
+    state.dataOrigin = "merged";
+    try {
+      localStorage.setItem(LS_DATA, JSON.stringify(state.data));
+    } catch (e) {
+      console.warn(e);
+      toast("로컬 저장 용량이 부족합니다. 배포용 data-store.js로 받거나 일부 분기를 삭제하세요.");
+    }
+    updateHeaderMeta();
   }
 
   function isEditor() {
@@ -278,17 +446,9 @@
   function syncFilterControls() {
     const f = state.filters;
     ensureLatestPeriodFilters();
-    const retQs = dataKeys("returns");
-    const defQs = dataKeys("defaults");
-    const qs =
-      state.page === "defaults"
-        ? defQs.length
-          ? defQs
-          : retQs
-        : retQs.length
-          ? retQs
-          : Calc.sortQuarters(Object.keys(state.data.returns || {}));
-    const qOpts = qs.map((q) => [q, q.replace("Q", "년 ") + "분기"]);
+    const qKind = periodKindForPage();
+    const qs = quarterSelectKeys();
+    const qOpts = qs.map((q) => [q, quarterOptionLabel(q, qKind)]);
     fillSelect($("#fBaseQ"), qOpts, f.baseQ);
     fillSelect($("#fCmpQ"), [["", "없음"], ...qOpts], f.cmpQ || "");
     fillSelect($("#fPlan"), [["DB", "DB"], ["DC", "DC"], ["IRP", "IRP"]], f.plan);
@@ -389,7 +549,9 @@
     const f = state.filters;
     const bySector = { 증권: [], 은행: [], 생보: [], 손보: [], 기타: [] };
     const seen = new Set();
-    const q = returnsQuarterFor(f.baseQ) || f.baseQ;
+    const q = hasPeriodData("returns", f.baseQ)
+      ? f.baseQ
+      : dataKeys("returns").slice(-1)[0] || f.baseQ;
     const rows = state.data.returns[q] || [];
     rows.forEach((r) => {
       if (!r.name || r.name === COMPANY || seen.has(r.name)) return;
@@ -496,7 +658,8 @@
       if (el.classList.contains("competitor-field")) {
         el.classList.toggle("hidden", !showCompPick);
       } else if (el.classList.contains("only-fee-y")) {
-        el.classList.toggle("hidden", !(showRet || showFee));
+        // 상품유형·기간은 수익률 계열 화면용 (수수료 산점도 제거)
+        el.classList.toggle("hidden", !showRet);
       } else {
         el.classList.toggle("hidden", !showRet);
       }
@@ -625,8 +788,9 @@
   /* ---------- pages ---------- */
   function renderSummary() {
     const f = state.filters;
-    const baseQ = returnsQuarterFor(f.baseQ) || f.baseQ;
-    const cmpQ = f.cmpQ ? returnsQuarterFor(f.cmpQ) : null;
+    if (!applyPeriodAvailability()) return;
+    const baseQ = f.baseQ;
+    const cmpQ = f.cmpQ && hasPeriodData("returns", f.cmpQ) ? f.cmpQ : null;
     const indexed = Calc.indexReturns(state.data.returns[baseQ] || []);
     const ranked = Calc.rankList(indexed, {
       plan: f.plan,
@@ -680,7 +844,7 @@
     $("#kpiMyAumMeta").innerHTML =
       kpiLine(
         `${secLabel} 업권 내 순위`,
-        aumRk.rank != null ? `${aumRk.rank}위 / ${aumRk.n}` : "—"
+        aumRk.rank != null ? fmtRank(aumRk.rank, aumRk.n) : "—"
       ) +
       kpiLine(`${secLabel} 업권 점유율`, shareSec != null ? fmtPct(shareSec) : "—") +
       kpiLine("전체 시장 점유율", shareAll != null ? fmtPct(shareAll) : "—") +
@@ -724,12 +888,12 @@
       kpiLine(
         `${secLabel} 업권 내 순위`,
         meSec
-          ? `${meSec.rank}위 / ${rankedSec.n} ${deltaHtml(meSec.rank, meSecPrev && meSecPrev.rank)}`
+          ? `${fmtRank(meSec.rank, rankedSec.n)} ${deltaHtml(meSec.rank, meSecPrev && meSecPrev.rank)}`
           : "—"
       ) +
       kpiLine(
         "전체 순위(보조)",
-        meAll ? `${meAll.rank}위 / ${rankedAll.n}` : "—"
+        meAll ? fmtRank(meAll.rank, rankedAll.n) : "—"
       );
 
     // 4) 평균 대비
@@ -766,7 +930,7 @@
     $("#kpiFeeMeta").innerHTML =
       kpiLine(
         "업권 내 순위(낮을수록 1위)",
-        feeMeRow ? `${feeMeRow.rank}위 / ${feeList.length}` : "—"
+        feeMeRow ? fmtRank(feeMeRow.rank, feeList.length) : "—"
       ) +
       kpiLine(`${secLabel} 업권 평균`, feeAvg != null ? fmt(feeAvg, 2) + "%" : "—");
 
@@ -802,9 +966,9 @@
           const prevRk = prevIndexed ? Calc.rankList(prevIndexed, opts) : null;
           const mp = prevRk ? Calc.findRank(prevRk, COMPANY) : null;
           const dHtml = deltaHtml(m && m.rank, mp && mp.rank);
-          const xlsx = m ? `${m.rank}위 / ${fmt(m.ret)}%` : "—";
+          const xlsx = m ? `${fmtRank(m.rank, rk.n)} / ${fmt(m.ret)}%` : "—";
           const cell = m
-            ? `<span class="rank-main">${m.rank}위 ${dHtml}</span><span class="rank-sub">${fmt(m.ret)}%</span>`
+            ? `<span class="rank-main">${fmtRank(m.rank, rk.n)} ${dHtml}</span><span class="rank-sub">${fmt(m.ret)}%</span>`
             : `<span class="rank-empty">—</span>`;
           html += `<td class="clickable rank-cell" data-xlsx="${xlsx}" data-plan="${pl}" data-type="${ty}" data-period="${pe}">${cell}</td>`;
         }
@@ -1026,7 +1190,7 @@
       chtml += `<tr class="${cls}"><td class="left">${n}</td>`;
 
       // 적립금: 금액 + 업권순위 + 업권비중·실적배당비중
-      const aumRankTxt = aumR ? `업권 ${aumR.rank}위/${aumR.n}위` : "업권 —";
+      const aumRankTxt = aumR ? `업권 ${fmtRank(aumR.rank, aumR.n)}` : "업권 —";
       const shareTxt = `업권비중 ${sectorShare == null ? "—" : fmt(sectorShare) + "%"} · 실적배당 ${eqShare == null ? "—" : fmt(eqShare) + "%"}`;
       chtml += `<td data-xlsx="${tot == null ? "—" : `${fmtAum(tot)} / ${aumRankTxt} / ${shareTxt}`}">
         <div class="comp-cell">
@@ -1039,7 +1203,7 @@
         const m = Calc.metricFor(entry, f.plan, ty, f.period);
         const hit = Calc.findRank(typeRankMap[ty], n);
         const prevHit = typeRankPrev[ty] ? Calc.findRank(typeRankPrev[ty], n) : null;
-        const rankTxt = hit ? `업권 ${hit.rank}위/${typeRankMap[ty].n}위` : "업권 —";
+        const rankTxt = hit ? `업권 ${fmtRank(hit.rank, typeRankMap[ty].n)}` : "업권 —";
         const dHtml = deltaHtml(hit && hit.rank, prevHit && prevHit.rank);
         const avg = typeRankMap[ty].avg;
         const gap = m.ret != null && avg != null ? m.ret - avg : null;
@@ -1055,7 +1219,7 @@
           </div></td>`;
       }
 
-      const feeRankTxt = feeHit ? `업권 ${feeHit.rank}위/${feeRanked.length}위` : "업권 —";
+      const feeRankTxt = feeHit ? `업권 ${fmtRank(feeHit.rank, feeRanked.length)}` : "업권 —";
       chtml += `<td data-xlsx="${fee == null ? "—" : `${fmt(fee, 3)}% / ${feeRankTxt}`}">
         <div class="comp-cell">
           <div class="comp-val">${fee == null ? "—" : fmt(fee, 3) + "%"}</div>
@@ -1067,15 +1231,16 @@
     $("#compTable").innerHTML = chtml;
     const noteEl = $("#compNote");
     if (noteEl) {
-      noteEl.textContent = `${f.sector} 업권 순위 · ${f.plan} · ${f.period}년 · 비교 ${cmpQ || "없음"} 대비 ▲▼ · 평균대비 %p · 수수료 낮을수록 상위(${feeYearEff || "—"}년)`;
+      noteEl.textContent = `${f.sector} 업권 순위 · ${f.plan} · ${f.period}년 · 비교 ${cmpPeriodNote("returns", f.cmpQ)} 대비 ▲▼ · 평균대비 %p · 수수료 낮을수록 상위(${feeYearEff || "—"}년)`;
     }
   }
 
   function renderSector() {
     const f = state.filters;
+    if (!applyPeriodAvailability()) return;
     const sectors = ["은행", "증권", "생보", "손보"];
-    const baseQ = returnsQuarterFor(f.baseQ) || f.baseQ;
-    const cmpQ = f.cmpQ ? returnsQuarterFor(f.cmpQ) : null;
+    const baseQ = f.baseQ;
+    const cmpQ = f.cmpQ && hasPeriodData("returns", f.cmpQ) ? f.cmpQ : null;
     const indexed = Calc.indexReturns(state.data.returns[baseQ] || []);
     const avgs = sectors.map((s) => {
       const rk = Calc.rankList(indexed, {
@@ -1211,7 +1376,8 @@
 
   function renderPlan() {
     const f = state.filters;
-    const baseQ = returnsQuarterFor(f.baseQ) || f.baseQ;
+    if (!applyPeriodAvailability()) return;
+    const baseQ = f.baseQ;
     const indexed = Calc.indexReturns(state.data.returns[baseQ] || []);
     const plans = ["DB", "DC", "IRP"];
     const me = [];
@@ -1419,7 +1585,8 @@
 
   function renderPeriod() {
     const f = state.filters;
-    const baseQ = returnsQuarterFor(f.baseQ) || f.baseQ;
+    if (!applyPeriodAvailability()) return;
+    const baseQ = f.baseQ;
     const indexed = Calc.indexReturns(state.data.returns[baseQ] || []);
     const periods = ["1", "3", "5", "7", "10"];
     const periodRankOpts = (period, sector) => ({
@@ -1505,10 +1672,10 @@
       periodCurveNote.textContent = `${f.plan} · ${f.type} · 3년 이상 연환산 · 당사·증권업·전체 + 선택 경쟁사. 범례 클릭으로 선 on/off`;
     }
 
-    const cmpQ = f.cmpQ ? returnsQuarterFor(f.cmpQ) : null;
+    const cmpQ = f.cmpQ && hasPeriodData("returns", f.cmpQ) ? f.cmpQ : null;
     const prevIndexed = cmpQ ? Calc.indexReturns(state.data.returns[cmpQ] || []) : null;
     const sectorRankLabel = f.sector === "전체" ? "전체 순위" : `${f.sector} 순위`;
-    const cmpLabel = cmpQ ? formatPeriodLabel(cmpQ) : "비교분기 없음";
+    const cmpLabel = cmpPeriodNote("returns", f.cmpQ);
     const periodMeNote = $("#periodMeNote");
     if (periodMeNote) {
       periodMeNote.textContent = `${f.plan} · ${f.type} · ${
@@ -1556,7 +1723,7 @@
       const gapSec = myRet != null && sectorAvg != null ? myRet - sectorAvg : null;
       const gapAll = myRet != null && allAvg != null ? myRet - allAvg : null;
       const gapTop = myRet != null && top && top.ret != null ? myRet - top.ret : null;
-      const rankTxt = m ? `${m.rank}위/${rk.n}` : "—";
+      const rankTxt = m ? fmtRank(m.rank, rk.n) : "—";
       const topTxt = top ? `${top.name} ${fmt(top.ret)}` : "—";
       const periodLabel = p === "1" ? "1년" : `${p}년`;
 
@@ -1601,13 +1768,15 @@
 
   function renderDefaults() {
     const f = state.filters;
-    const doQ = defaultsQuarterFor(f.baseQ) || f.baseQ;
-    const doCmpQ = f.cmpQ ? defaultsQuarterFor(f.cmpQ) : null;
+    if (!applyPeriodAvailability()) return;
+    const doQ = f.baseQ;
+    const doCmpQ = f.cmpQ && hasPeriodData("defaults", f.cmpQ) ? f.cmpQ : null;
     const rows = state.data.defaults[doQ] || [];
     const list = Calc.aggregateDefaults(rows, f.risk, f.doPeriod).filter(
       (r) => f.sector === "전체" || r.sector === f.sector
     );
-    list.forEach((r, i) => (r.rank = i + 1));
+    // 업권 필터 후 동률 순위 재부여 (1,1,3)
+    Calc.assignCompetitionRanks(list, (r) => r.ret);
 
     const risks = ["초저위험", "저위험", "중위험", "고위험"];
     const doPeriodLabel =
@@ -1822,6 +1991,7 @@
     const prevList = Calc.aggregateDefaults(prevRows, f.risk, f.doPeriod).filter(
       (r) => f.sector === "전체" || r.sector === f.sector
     );
+    Calc.assignCompetitionRanks(prevList, (r) => r.ret);
     const prevRankMap = new Map(prevList.map((x) => [x.name, x.rank]));
 
     const doPeriodCols = [
@@ -1842,7 +2012,7 @@
     }
 
     const sectorLabel = f.sector === "전체" ? "전체" : f.sector;
-    const cmpLabel = doCmpQ ? formatPeriodLabel(doCmpQ) : "비교분기 없음";
+    const cmpLabel = cmpPeriodNote("defaults", f.cmpQ);
 
     const titleEl = $("#doRankTitle");
     if (titleEl) {
@@ -1907,7 +2077,10 @@
     const f = state.filters;
     const feeYear = feesYearFor(f.feeYear) || f.feeYear;
     const feeCmpYear = f.feeCmpYear ? feesYearFor(f.feeCmpYear) : null;
-    const baseQ = returnsQuarterFor(f.baseQ) || f.baseQ;
+    const retKeys = dataKeys("returns");
+    const baseQ = hasPeriodData("returns", f.baseQ)
+      ? f.baseQ
+      : retKeys[retKeys.length - 1] || f.baseQ;
     const rows = state.data.fees[feeYear] || [];
     const list = Calc.rankFees(rows, f.feePlan, f.feeSector);
     const prevList = feeCmpYear
@@ -1915,66 +2088,276 @@
       : [];
 
     const sectors = ["은행", "증권", "생보", "손보"];
-    const avgs = sectors.map((s) => {
-      const sub = Calc.rankFees(rows, f.feePlan, s);
-      return sub.length ? sub.reduce((a, b) => a + b.rate, 0) / sub.length : null;
-    });
+    const sectorColors = {
+      은행: "#3b82f6",
+      증권: "#7c3aed",
+      생보: "#16a34a",
+      손보: "#ca8a04",
+    };
+    const feePlans = ["DB", "DC", "IRP"];
+
+    function meanRate(sub) {
+      if (!sub.length) return null;
+      return sub.reduce((s, r) => s + r.rate, 0) / sub.length;
+    }
+    function avgParts(sub) {
+      if (!sub.length) return null;
+      const split = sub.filter((r) => r.ops != null && r.asset != null);
+      if (split.length) {
+        return {
+          ops: split.reduce((s, r) => s + r.ops, 0) / split.length,
+          asset: split.reduce((s, r) => s + r.asset, 0) / split.length,
+          rate: split.reduce((s, r) => s + r.rate, 0) / split.length,
+          hasSplit: true,
+        };
+      }
+      return {
+        ops: null,
+        asset: null,
+        rate: meanRate(sub),
+        hasSplit: false,
+      };
+    }
+
+    // 1) 업권 평균: DB·DC·IRP × 은행/증권/생보/손보 + 당사
+    const avgTitle = $("#feeAvgTitle");
+    if (avgTitle) {
+      avgTitle.innerHTML = `수수료 비용부담률 업권 평균 (${feeYear || "—"}년) <button class="btn" data-export-chart="chartFeeAvg" data-filename="수수료업권평균.png">PNG</button>`;
+    }
     makeChart("chartFeeAvg", {
       type: "bar",
       _decimals: 3,
       data: {
-        labels: sectors,
-        datasets: [{ label: "평균 총비용부담률", data: avgs, backgroundColor: "#4a6fa5" }],
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
-    });
-
-    // scatter fee vs return
-    const indexed = Calc.indexReturns(state.data.returns[baseQ] || []);
-    const scatterSector = $("#feeScatterScope").value || f.feeSector;
-    const points = [];
-    for (const fee of Calc.rankFees(rows, f.feePlan, scatterSector === "전체업권" ? "전체" : scatterSector)) {
-      const e = indexed.get(fee.name);
-      const ret = Calc.metricFor(e, f.feePlan, f.type, f.period).ret;
-      if (ret == null) continue;
-      points.push({ x: fee.rate, y: ret, name: fee.name });
-    }
-    makeChart("chartFeeScatter", {
-      type: "scatter",
-      data: {
+        labels: feePlans,
         datasets: [
+          ...sectors.map((s) => ({
+            label: `${s} 평균`,
+            data: feePlans.map((pl) => meanRate(Calc.rankFees(rows, pl, s))),
+            backgroundColor: sectorColors[s],
+          })),
           {
-            label: "사업자",
-            data: points,
-            backgroundColor: points.map((p) =>
-              p.name === COMPANY ? "#e85d04" : "rgba(74,111,165,.55)"
-            ),
-            pointRadius: points.map((p) => (p.name === COMPANY ? 8 : 5)),
+            label: "당사",
+            data: feePlans.map((pl) => {
+              const parts = Calc.feeParts(
+                rows.find((r) => r.name === COMPANY),
+                pl
+              );
+              return parts ? parts.rate : null;
+            }),
+            backgroundColor: "#e85d04",
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: {
-          tooltip: {
-            callbacks: {
-              label(c) {
-                return `${c.raw.name}: 수수료 ${fmt(c.raw.x, 3)}%, 수익 ${fmt(c.raw.y)}%`;
+        plugins: { legend: { position: "bottom" } },
+        scales: {
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: "%" },
+            ticks: {
+              callback(v) {
+                return v + "%";
               },
             },
           },
-          legend: { display: false },
-        },
-        scales: {
-          x: { title: { display: true, text: "수수료 비용부담률 (%) →" } },
-          y: { title: { display: true, text: "수익률 (%) ↑" } },
         },
       },
     });
+    const feeAvgNote = $("#feeAvgNote");
+    if (feeAvgNote) {
+      feeAvgNote.textContent = `${feeYear || "—"}년 · 제도별 단순평균 · 낮을수록 좋음`;
+    }
+
+    // 2) 수수료 구성: 당사 + 경쟁사 + 증권평균 + 전체평균 (가로 누적)
+    const mixPlan = f.feePlan;
+    const secList = Calc.rankFees(rows, mixPlan, "증권");
+    const allList = Calc.rankFees(rows, mixPlan, "전체");
+    const mixRows = [];
+    const meRow = allList.find((r) => r.name === COMPANY);
+    if (meRow) mixRows.push({ label: meRow.name, ...meRow, kind: "me" });
+    f.competitors.forEach((n) => {
+      const hit = allList.find((r) => r.name === n);
+      if (hit) mixRows.push({ label: hit.name, ...hit, kind: "comp" });
+    });
+    mixRows.sort((a, b) => a.rate - b.rate);
+    const secAvgP = avgParts(secList);
+    const allAvgP = avgParts(allList);
+    if (secAvgP) mixRows.push({ label: "증권 평균", ...secAvgP, kind: "secAvg" });
+    if (allAvgP) mixRows.push({ label: "전체 평균", ...allAvgP, kind: "allAvg" });
+    const hasSplit = mixRows.some((r) => r.hasSplit || (r.ops != null && r.asset != null));
+    const mixTitle = $("#feeMixTitle");
+    if (mixTitle) {
+      mixTitle.innerHTML = `수수료 구성 (${feeYear || "—"}년) <button class="btn" data-export-chart="chartFeeMix" data-filename="수수료구성.png">PNG</button>`;
+    }
+    makeChart("chartFeeMix", {
+      type: "bar",
+      _decimals: 3,
+      data: {
+        labels: mixRows.map((r) => r.label),
+        datasets: hasSplit
+          ? [
+              {
+                label: "운용관리",
+                data: mixRows.map((r) => (r.ops != null ? r.ops : null)),
+                backgroundColor: "#93c5fd",
+                stack: "fee",
+              },
+              {
+                label: "자산관리",
+                data: mixRows.map((r) => (r.asset != null ? r.asset : null)),
+                backgroundColor: "#1e3a5f",
+                stack: "fee",
+              },
+            ]
+          : [
+              {
+                label: "총비용부담률",
+                data: mixRows.map((r) => r.rate),
+                backgroundColor: mixRows.map((r) =>
+                  r.kind === "me" ? "#e85d04" : r.kind === "comp" ? "#0d9488" : "#64748b"
+                ),
+              },
+            ],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: "bottom" } },
+        scales: {
+          x: {
+            stacked: hasSplit,
+            beginAtZero: true,
+            title: { display: true, text: "%" },
+            ticks: {
+              callback(v) {
+                return v + "%";
+              },
+            },
+          },
+          y: { stacked: hasSplit },
+        },
+      },
+    });
+    const feeMixNote = $("#feeMixNote");
+    if (feeMixNote) {
+      feeMixNote.textContent = hasSplit
+        ? `${mixPlan} · 운용관리 + 자산관리 · 짧을수록 좋음`
+        : `${mixPlan} · 총비용만 표시(운용·자산 분리 없음) · 수수료 엑셀 재업로드 시 구성 표시 · 짧을수록 좋음`;
+    }
+
+    // 3) 전년 대비: 업권 사업자 + 업권 평균(맨 아래)
+    const yKeys = dataKeys("fees");
+    const yoyPrev =
+      feeCmpYear ||
+      (feeYear && yKeys.includes(String(Number(feeYear) - 1))
+        ? String(Number(feeYear) - 1)
+        : yKeys.filter((y) => y < feeYear).slice(-1)[0] || null);
+    const yoySec = f.feeSector === "전체" ? "증권" : f.feeSector;
+    const curSecList = Calc.rankFees(rows, f.feePlan, yoySec);
+    const prevSecList = yoyPrev ? Calc.rankFees(state.data.fees[yoyPrev] || [], f.feePlan, yoySec) : [];
+    const prevByName = new Map(prevSecList.map((r) => [r.name, r.rate]));
+    const yoyItems = curSecList
+      .map((r) => {
+        const prev = prevByName.has(r.name) ? prevByName.get(r.name) : null;
+        if (prev == null) return null;
+        return {
+          name: r.name,
+          delta: r.rate - prev,
+          isMe: r.name === COMPANY,
+          isComp: f.competitors.includes(r.name),
+          kind: "prov",
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.delta - b.delta);
+    if (yoyPrev && curSecList.length && prevSecList.length) {
+      const curAvg = meanRate(curSecList);
+      const prevAvg = meanRate(prevSecList);
+      if (curAvg != null && prevAvg != null) {
+        yoyItems.push({
+          name: `${yoySec} 평균`,
+          delta: curAvg - prevAvg,
+          isMe: false,
+          isComp: false,
+          kind: "avg",
+        });
+      }
+    }
+    const yoyTitle = $("#feeYoYTitle");
+    if (yoyTitle) {
+      yoyTitle.innerHTML = `전년 대비 수수료 변화 (${yoyPrev || "—"}→${feeYear || "—"}년) <button class="btn" data-export-chart="chartFeeYoY" data-filename="수수료전년대비.png">PNG</button>`;
+    }
+    makeChart("chartFeeYoY", {
+      type: "bar",
+      _decimals: 3,
+      _suffix: "%p",
+      data: {
+        labels: yoyItems.map((r) => r.name),
+        datasets: [
+          {
+            label: "전년 대비",
+            data: yoyItems.map((r) => r.delta),
+            backgroundColor: yoyItems.map((r) =>
+              r.kind === "avg"
+                ? "#7c3aed"
+                : r.isMe
+                ? "#e85d04"
+                : r.isComp
+                ? "#0d9488"
+                : "#cbd5e1"
+            ),
+          },
+        ],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(ctx) {
+                const v = ctx.parsed.x;
+                if (v == null || Number.isNaN(+v)) return "—";
+                const sign = v > 0 ? "+" : "";
+                return sign + fmt(+v, 3) + "%p";
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            title: { display: true, text: "%p" },
+            ticks: {
+              callback(v) {
+                return v + "%p";
+              },
+            },
+          },
+        },
+      },
+    });
+    const feeYoYNote = $("#feeYoYNote");
+    if (feeYoYNote) {
+      const meYoy = yoyItems.find((r) => r.isMe);
+      const avgYoy = yoyItems.find((r) => r.kind === "avg");
+      const meTxt =
+        meYoy != null ? `당사 ${meYoy.delta > 0 ? "+" : ""}${fmt(meYoy.delta, 3)}%p` : "당사 —";
+      const avgTxt =
+        avgYoy != null
+          ? `${yoySec} 평균 ${avgYoy.delta > 0 ? "+" : ""}${fmt(avgYoy.delta, 3)}%p`
+          : "";
+      feeYoYNote.textContent = yoyPrev
+        ? `${yoySec} · ${f.feePlan} · 왼쪽(음수)일수록 인하 · ${meTxt}${avgTxt ? ", " + avgTxt : ""}`
+        : "비교할 이전 연도 수수료 데이터가 없습니다.";
+    }
 
     // 적립금: 수익률 공시(기준분기 또는 최신)의 선택 제도 합계
-    const aumQ = baseQ || returnsQuarterFor(null);
+    const aumQ = baseQ || dataKeys("returns").slice(-1)[0] || null;
     const aumIndexed = Calc.indexReturns(state.data.returns[aumQ] || []);
 
     let feeAvg = null;
@@ -2072,7 +2455,9 @@
         toast("삭제되었습니다.");
       });
     });
-    $("#dataMeta").textContent = `최종 갱신: ${state.data.meta.updatedAt || "—"} · 수익률 ${Object.keys(state.data.returns).length}분기 · 디폴트 ${Object.keys(state.data.defaults).length}분기 · 수수료 ${Object.keys(state.data.fees).length}년`;
+    const at = formatUpdatedAt(state.data.meta.updatedAt) || state.data.meta.updatedAt || "—";
+    $("#dataMeta").textContent = `최종 갱신: ${at} · 수익률 ${Object.keys(state.data.returns).length}분기 · 디폴트 ${Object.keys(state.data.defaults).length}분기 · 수수료 ${Object.keys(state.data.fees).length}년`;
+    updateHeaderMeta();
   }
 
   let pendingUploads = [];
@@ -2082,23 +2467,36 @@
     const lines = parsedList.map((p) => {
       const kindLabel =
         p.kind === "returns" ? "수익률" : p.kind === "defaults" ? "디폴트옵션" : "수수료";
-      return `· ${p.fileName} → ${kindLabel} ${p.key || "(키 없음)"} · 인식 ${p.rows.length}행 · 문제 ${p.problems.length}건 · 스킵 ${p.skipped || 0}`;
+      const keyHint =
+        p.keySource === "filename" ? " (파일명)" : p.keySource === "input" ? " (입력)" : "";
+      return `· ${p.fileName} → ${kindLabel} ${p.key || "(키 없음)"}${keyHint} · 인식 ${p.rows.length}행 · 문제 ${p.problems.length}건 · 스킵 ${p.skipped || 0}`;
     });
     const hardIssues = parsedList.flatMap((p) =>
       (p.issues || []).map((msg) => `${p.fileName}: ${msg}`)
     );
+    const blockReasons = [];
+    parsedList.forEach((p) => {
+      if (!p.key) blockReasons.push(`${p.fileName}: 분기/연도 키가 없습니다. 위에 입력 후 다시 올려 주세요.`);
+      if (!p.rows.length) blockReasons.push(`${p.fileName}: 인식된 데이터 행이 없습니다.`);
+    });
+    hardIssues.forEach((msg) => blockReasons.push(msg));
+
+    const canSave =
+      parsedList.every((p) => p.key && p.rows.length) && hardIssues.length === 0;
+
     $("#validateSummary").innerHTML =
       `<strong>검증 결과</strong><br>${lines.join("<br>")}` +
-      (hardIssues.length
-        ? `<br><span style="color:#c62828">${hardIssues.join("<br>")}</span>`
-        : "");
+      (blockReasons.length
+        ? `<br><br><strong style="color:#c62828">저장 불가 사유</strong><br><span style="color:#c62828">${blockReasons.join("<br>")}</span>`
+        : `<br><br><span style="color:#2e7d32">저장 가능합니다. (이 PC 브라우저에만 반영)</span>`);
 
     const allProblems = parsedList.flatMap((p) =>
       (p.problems || []).map((pr) => ({ ...pr, file: p.fileName }))
     );
     if (!allProblems.length) {
-      $("#validateProblems").innerHTML =
-        '<p class="note" style="margin:0">문제 행 없음. 저장해도 됩니다.</p>';
+      $("#validateProblems").innerHTML = canSave
+        ? '<p class="note" style="margin:0">행 단위 문제 없음.</p>'
+        : '<p class="note" style="margin:0">행 단위 문제는 없으나, 위 저장 불가 사유를 해결해야 저장됩니다.</p>';
     } else {
       let ph = `<table class="data"><thead><tr><th>파일</th><th>엑셀행</th><th class="left">사업자</th><th class="left">사유</th><th class="left">상세</th></tr></thead><tbody>`;
       allProblems.slice(0, 80).forEach((pr) => {
@@ -2111,14 +2509,12 @@
       $("#validateProblems").innerHTML = ph;
     }
 
-    const canSave =
-      parsedList.every((p) => p.key && p.rows.length) && hardIssues.length === 0;
     $("#validateSave").disabled = !canSave;
     $("#validateSave").textContent = canSave
       ? allProblems.length
         ? `문제 ${allProblems.length}건 있으나 인식 행만 저장`
         : "검증 통과 · 저장"
-      : "저장 불가 (키·인식 행 확인)";
+      : "저장 불가";
     $("#modalValidate").classList.add("show");
   }
 
@@ -2152,10 +2548,11 @@
   async function handleUpload(files, kind, key) {
     if (!isEditor()) return toast("관리자만 업로드할 수 있습니다.");
     const parsedList = [];
+    const keyNorm = key ? Parser.normalizePeriodKey(key, kind) : null;
     for (const file of files) {
-      const parsed = await Parser.parseFile(file, { kind, key });
-      // 사용자가 키를 입력했으면 우선
-      if (key) parsed.key = key;
+      // 입력값 > 파일명(242Q 등) > 엑셀 본문 순으로 parseFile이 키 결정
+      const parsed = await Parser.parseFile(file, { kind, key: keyNorm || undefined });
+      if (keyNorm) parsed.key = keyNorm;
       parsedList.push(parsed);
     }
     if (!parsedList.length) return toast("파일이 없습니다.");
@@ -2188,41 +2585,23 @@
     data: "데이터관리",
   };
 
-  /** 캔버스를 페이지 높이만큼 잘라 넣어 잘림 방지 (PNG로 선명도 유지) */
-  function addCanvasPaginated(pdf, canvas, margin) {
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const pdfImgW = pageWidth - margin * 2;
-    const pxPerMm = canvas.width / pdfImgW;
-    let srcY = 0;
-    let pageIdx = 0;
+  /** A4 세로(210×297mm). 카드(항목) 단위로 페이지에 배치해 중간 잘림 방지 */
+  const PDF_A4 = { orientation: "portrait", unit: "mm", format: "a4" };
+  const PDF_MARGIN_MM = 10;
+  const PDF_GAP_MM = 5;
+  const PDF_CAPTURE_CSS_W = 980;
+  const PDF_SCALE = 2.5;
 
-    while (srcY < canvas.height - 1) {
-      const usableMm = pageHeight - margin * 2;
-      const slicePx = Math.max(1, Math.min(canvas.height - srcY, Math.floor(usableMm * pxPerMm)));
-
-      const slice = document.createElement("canvas");
-      slice.width = canvas.width;
-      slice.height = slicePx;
-      const sctx = slice.getContext("2d");
-      sctx.fillStyle = "#ffffff";
-      sctx.fillRect(0, 0, slice.width, slice.height);
-      sctx.drawImage(canvas, 0, srcY, canvas.width, slicePx, 0, 0, canvas.width, slicePx);
-
-      const sliceHmm = slicePx / pxPerMm;
-      if (pageIdx > 0) pdf.addPage();
-      pdf.addImage(slice.toDataURL("image/png"), "PNG", margin, margin, pdfImgW, sliceHmm);
-
-      srcY += slicePx;
-      pageIdx++;
-      if (pageIdx > 40) break;
-    }
+  function pdfPageInnerMm(pdf) {
+    const w = pdf.internal.pageSize.getWidth();
+    const h = pdf.internal.pageSize.getHeight();
+    return { w: w - PDF_MARGIN_MM * 2, h: h - PDF_MARGIN_MM * 2, pageW: w, pageH: h };
   }
 
   /** jsPDF 기본 폰트는 한글 미지원 → 캔버스에 시스템 한글 폰트로 제목 그림 */
   function drawPdfTitleBanner(widthPx, title, subtitle) {
-    const scale = 2;
-    const h = Math.round(56 * scale);
+    const scale = PDF_SCALE;
+    const h = Math.round(52 * scale);
     const c = document.createElement("canvas");
     c.width = widthPx;
     c.height = h;
@@ -2231,33 +2610,103 @@
     ctx.fillRect(0, 0, widthPx, h);
     ctx.fillStyle = "#ffffff";
     ctx.textBaseline = "middle";
-    ctx.font = `bold ${22 * scale}px "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
-    ctx.fillText(title, 16 * scale, h * 0.42);
+    const fontStack = '"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif';
+    ctx.font = `bold ${20 * scale}px ${fontStack}`;
+    ctx.fillText(title, 14 * scale, h * 0.4);
     if (subtitle) {
-      ctx.font = `${14 * scale}px "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
-      ctx.fillStyle = "rgba(255,255,255,0.88)";
-      ctx.fillText(subtitle, 16 * scale, h * 0.72);
+      ctx.font = `${13 * scale}px ${fontStack}`;
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillText(subtitle, 14 * scale, h * 0.72);
     }
     return c;
   }
 
   async function captureElement(el, bg) {
-    const w = Math.ceil(Math.max(el.scrollWidth, el.offsetWidth, el.clientWidth));
-    const h = Math.ceil(Math.max(el.scrollHeight, el.offsetHeight, el.clientHeight));
+    const w = Math.ceil(Math.max(el.scrollWidth, el.offsetWidth, el.clientWidth, 1));
+    const h = Math.ceil(Math.max(el.scrollHeight, el.offsetHeight, el.clientHeight, 1));
     return html2canvas(el, {
-      scale: 2,
+      scale: PDF_SCALE,
       useCORS: true,
       allowTaint: true,
       backgroundColor: bg,
       logging: false,
-      scrollX: 0,
-      scrollY: 0,
+      scrollX: -window.scrollX,
+      scrollY: -window.scrollY,
       width: w,
       height: h,
-      windowWidth: w,
+      windowWidth: Math.max(w, PDF_CAPTURE_CSS_W),
       windowHeight: h,
       x: 0,
       y: 0,
+      imageTimeout: 15000,
+      onclone(doc) {
+        const body = doc.body;
+        if (!body) return;
+        body.style.fontFamily = '"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif';
+        body.querySelectorAll("*").forEach((node) => {
+          if (node.style) node.style.fontFamily = "inherit";
+        });
+      },
+    });
+  }
+
+  /** 페이지를 PDF 블록 단위로 분리 (제목·KPI행·카드 등 — 중간에서 안 자름) */
+  function collectPdfBlockEls(pageEl) {
+    const blocks = [];
+    const head = pageEl.querySelector(":scope > .page-head");
+    if (head) blocks.push(head);
+    const grid = pageEl.querySelector(":scope > .grid");
+    if (!grid) {
+      if (!blocks.length) blocks.push(pageEl);
+      return blocks;
+    }
+    [...grid.children].forEach((child) => {
+      if (child.nodeType !== 1) return;
+      // KPI 행·카드·기타 섹션을 각각 하나의 항목으로
+      blocks.push(child);
+    });
+    return blocks.length ? blocks : [pageEl];
+  }
+
+  function padCanvasToWidth(canvas, widthPx, bg) {
+    if (canvas.width >= widthPx) return canvas;
+    const out = document.createElement("canvas");
+    out.width = widthPx;
+    out.height = canvas.height;
+    const ctx = out.getContext("2d");
+    ctx.fillStyle = bg || "#ffffff";
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(canvas, 0, 0);
+    return out;
+  }
+
+  /** 항목(캔버스)을 세로 A4에 배치 — 한 항목이 페이지를 넘으면 통째로 다음 장, 한 장보다 크면 축소 */
+  function addBlockCanvasesToPdf(pdf, canvases) {
+    const { w: usableW, h: usableH } = pdfPageInnerMm(pdf);
+    let yMm = PDF_MARGIN_MM;
+    let started = false;
+
+    canvases.forEach((canvas) => {
+      if (!canvas || !canvas.width || !canvas.height) return;
+      let drawW = usableW;
+      let drawH = (canvas.height / canvas.width) * drawW;
+      if (drawH > usableH) {
+        const s = usableH / drawH;
+        drawW *= s;
+        drawH = usableH;
+      }
+
+      const needNewPage = started && yMm + drawH > PDF_MARGIN_MM + usableH + 0.1;
+      if (needNewPage) {
+        pdf.addPage();
+        yMm = PDF_MARGIN_MM;
+      }
+      started = true;
+
+      const x = PDF_MARGIN_MM + (usableW - drawW) / 2;
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+      pdf.addImage(dataUrl, "JPEG", x, yMm, drawW, drawH, undefined, "FAST");
+      yMm += drawH + PDF_GAP_MM;
     });
   }
 
@@ -2279,7 +2728,7 @@
       btn.disabled = true;
       btn.textContent = "PDF 생성 중…";
     }
-    toast("PDF 생성 중… 잠시만 기다려 주세요.");
+    toast("PDF 생성 중… 항목별 분할 · A4 세로");
 
     const prevScrollX = window.scrollX;
     const prevScrollY = window.scrollY;
@@ -2287,40 +2736,43 @@
     document.body.classList.add("capturing-pdf");
 
     try {
-      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 120)));
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 220)));
 
-      const cFilter = await captureElement(filterEl, "#ffffff");
-      const cPage = await captureElement(pageEl, "#f4f6f8");
-
-      const q = state.filters.baseQ || state.filters.feeYear || "";
+      const q =
+        state.page === "fees"
+          ? state.filters.feeYear || ""
+          : state.filters.baseQ || state.filters.feeYear || "";
       const pageLabel = PAGE_LABELS[state.page] || state.page;
       const titleMain = "한화투자증권 퇴직연금 공시 비교";
-      const titleSub = `${pageLabel}${q ? " · " + q : ""}`;
+      const titleSub = `${pageLabel}${q ? " · " + q : ""} · A4 세로`;
 
-      const gap = 20;
-      const width = Math.max(cFilter.width, cPage.width);
-      const cTitle = drawPdfTitleBanner(width, titleMain, titleSub);
+      const blockEls = collectPdfBlockEls(pageEl);
+      const canvases = [];
 
-      const combined = document.createElement("canvas");
-      combined.width = width;
-      combined.height = cTitle.height + gap + cFilter.height + gap + cPage.height;
-      const ctx = combined.getContext("2d");
-      ctx.fillStyle = "#f4f6f8";
-      ctx.fillRect(0, 0, combined.width, combined.height);
-      let y = 0;
-      ctx.drawImage(cTitle, 0, y);
-      y += cTitle.height + gap;
-      ctx.drawImage(cFilter, 0, y);
-      y += cFilter.height + gap;
-      ctx.drawImage(cPage, 0, y);
+      // 필터
+      if (filterEl && !filterEl.classList.contains("hidden")) {
+        canvases.push(await captureElement(filterEl, "#ffffff"));
+      }
+
+      // 페이지 제목·KPI·카드 각각 캡처 (중간 절단 없음)
+      for (const el of blockEls) {
+        if (!el || el.offsetParent === null && el.offsetHeight === 0) continue;
+        const bg = el.classList.contains("page-head") ? "#f4f6f8" : "#ffffff";
+        canvases.push(await captureElement(el, bg));
+      }
+
+      if (!canvases.length) throw new Error("캡처할 항목이 없습니다.");
+
+      const maxW = Math.max(...canvases.map((c) => c.width));
+      const cTitle = drawPdfTitleBanner(maxW, titleMain, titleSub);
+      const normalized = [cTitle, ...canvases.map((c) => padCanvasToWidth(c, maxW, "#ffffff"))];
 
       const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      // 한글은 pdf.text 사용하지 않음 (깨짐 방지). 제목은 위 배너 이미지에 포함.
-      addCanvasPaginated(pdf, combined, 6);
-      const fname = `퇴직연금_${pageLabel}_${q || "report"}.pdf`;
+      const pdf = new jsPDF(PDF_A4);
+      addBlockCanvasesToPdf(pdf, normalized);
+      const fname = `퇴직연금_${pageLabel}_${q || "report"}_A4.pdf`;
       pdf.save(fname);
-      toast("PDF를 저장했습니다.");
+      toast("A4 PDF를 저장했습니다. (항목별 잘림 방지)");
     } catch (e) {
       console.error(e);
       toast("PDF 생성 실패: " + (e.message || e));
@@ -2370,6 +2822,7 @@
           return;
         }
         state.page = btn.dataset.page;
+        applyLatestPeriodForPage();
         renderPage();
       });
     });
@@ -2445,12 +2898,12 @@
     $("#btnPdf").addEventListener("click", () => exportPagePdf());
     $("#btnExportStore").addEventListener("click", downloadDeployBundle);
     $("#btnClearLocal").addEventListener("click", () => {
-      if (!confirm("이 PC의 로컬 저장 데이터를 지우고 배포본으로 되돌릴까요?")) return;
+      if (!confirm("이 PC의 로컬 저장 데이터를 지우고 배포본(data-store.js)만 볼까요?")) return;
       localStorage.removeItem(LS_DATA);
       loadData();
       syncFilterControls();
       renderPage();
-      toast("배포본 데이터로 복원했습니다.");
+      toast("로컬 저장을 지웠습니다. 배포본만 표시합니다.");
     });
 
     // export buttons via delegation
@@ -2461,7 +2914,6 @@
       if (x) exportTableXlsx(x.dataset.exportTable, x.dataset.filename);
     });
 
-    $("#feeScatterScope")?.addEventListener("change", () => renderFees());
   }
 
   function init() {

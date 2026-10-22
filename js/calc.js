@@ -20,6 +20,12 @@
     return qq === 1 ? `${y - 1}Q4` : `${y}Q${qq - 1}`;
   }
 
+  function nextQuarter(q) {
+    const [y, qq] = q.split("Q").map(Number);
+    if (!y || !qq) return null;
+    return qq === 4 ? `${y + 1}Q1` : `${y}Q${qq + 1}`;
+  }
+
   /** 사업자별 type map 구성 */
   function indexReturns(rows) {
     const byName = new Map();
@@ -156,15 +162,26 @@
       });
     }
     list.sort((a, b) => b.ret - a.ret || (b.aum || 0) - (a.aum || 0));
-    let rank = 0;
-    let last = null;
-    list.forEach((row, i) => {
-      if (last === null || row.ret !== last) rank = i + 1;
-      row.rank = rank;
-      last = row.ret;
-    });
+    assignCompetitionRanks(list, (row) => row.ret);
     const avg = averageOf(list, avgMode);
     return { list, avg, n: list.length };
+  }
+
+  /** 동률이면 같은 순위, 다음은 건너뜀 (예: 1,1,3) */
+  function assignCompetitionRanks(list, valueOf) {
+    let rank = 0;
+    let last = null;
+    let hasLast = false;
+    list.forEach((row, i) => {
+      const v = valueOf(row);
+      if (!hasLast || v !== last) {
+        rank = i + 1;
+        last = v;
+        hasLast = true;
+      }
+      row.rank = rank;
+    });
+    return list;
   }
 
   function averageOf(list, mode) {
@@ -245,13 +262,7 @@
       });
     }
     list.sort((a, b) => b.ret - a.ret || (b.aum || 0) - (a.aum || 0));
-    let rank = 0;
-    let last = null;
-    list.forEach((row, i) => {
-      if (last === null || row.ret !== last) rank = i + 1;
-      row.rank = rank;
-      last = row.ret;
-    });
+    assignCompetitionRanks(list, (row) => row.ret);
     return list;
   }
 
@@ -260,18 +271,35 @@
     return num(row[plan].rate);
   }
 
+  /** 운용·자산·합계 (구 데이터는 ops/asset 없을 수 있음) */
+  function feeParts(row, plan) {
+    if (!row || !row[plan]) return null;
+    const p = row[plan];
+    const ops = num(p.ops);
+    const asset = num(p.asset);
+    let rate = num(p.rate);
+    if (rate == null && ops != null && asset != null) rate = ops + asset;
+    if (rate == null && ops == null && asset == null) return null;
+    return { ops, asset, rate };
+  }
+
   function rankFees(rows, plan, sector) {
     const list = [];
     for (const row of rows || []) {
       if (sector && sector !== "전체" && row.sector !== sector) continue;
-      const rate = feeRate(row, plan);
-      if (rate == null) continue;
-      list.push({ name: row.name, sector: row.sector, rate, metric: row[plan].metric });
+      const parts = feeParts(row, plan);
+      if (!parts || parts.rate == null) continue;
+      list.push({
+        name: row.name,
+        sector: row.sector,
+        rate: parts.rate,
+        ops: parts.ops,
+        asset: parts.asset,
+        metric: row[plan].metric,
+      });
     }
     list.sort((a, b) => a.rate - b.rate); // 낮을수록 1위
-    list.forEach((row, i) => {
-      row.rank = i + 1;
-    });
+    assignCompetitionRanks(list, (row) => row.rate);
     return list;
   }
 
@@ -281,18 +309,21 @@
     num,
     sortQuarters,
     prevQuarter,
+    nextQuarter,
     indexReturns,
     metricFor,
     totalAum,
     equityShare,
     equityShareAggregate,
     rankList,
+    assignCompetitionRanks,
     averageOf,
     findRank,
     deltaRank,
     formatDelta,
     aggregateDefaults,
     feeRate,
+    feeParts,
     rankFees,
     sector_of: null,
   };

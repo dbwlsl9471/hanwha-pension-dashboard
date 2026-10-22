@@ -28,6 +28,89 @@
     return Number.isFinite(n) ? n : null;
   }
 
+  /**
+   * 분기/연도 표기 정규화
+   * 예: 242Q → 2024Q2, 24Q2 → 2024Q2, 2024Q2, 24 → 2024, 2025
+   */
+  function normalizePeriodKey(raw, kindHint) {
+    if (raw == null || raw === "") return null;
+    const s = String(raw).trim().toUpperCase().replace(/\s+/g, "").replace(/년|분기/g, "");
+    if (!s) return null;
+
+    let m = s.match(/^(\d{4})Q([1-4])$/);
+    if (m) return `${m[1]}Q${m[2]}`;
+
+    m = s.match(/^(\d{2})Q([1-4])$/);
+    if (m) return `20${m[1]}Q${m[2]}`;
+
+    // 242Q / 252Q (연도2자리 + 분기 + Q)
+    m = s.match(/^(\d{2})([1-4])Q$/);
+    if (m) return `20${m[1]}Q${m[2]}`;
+
+    // 2024.2 / 2024-2 / 2024/2
+    m = s.match(/^(\d{4})[-./]([1-4])$/);
+    if (m) return `${m[1]}Q${m[2]}`;
+
+    // 24.2 / 24-2
+    m = s.match(/^(\d{2})[-./]([1-4])$/);
+    if (m) return `20${m[1]}Q${m[2]}`;
+
+    // 242 (연도2자리+분기) — 수수료가 아닐 때
+    m = s.match(/^(\d{2})([1-4])$/);
+    if (m && kindHint !== "fees") return `20${m[1]}Q${m[2]}`;
+
+    m = s.match(/^(\d{4})$/);
+    if (m) return m[1];
+
+    m = s.match(/^(\d{2})$/);
+    if (m) return `20${m[1]}`;
+
+    return null;
+  }
+
+  /** 파일명에서 분기/연도 추출 (예: 수익률_242Q.xlsx → 2024Q2) */
+  function keyFromFileName(fileName, kindHint) {
+    if (!fileName) return null;
+    const base = String(fileName)
+      .replace(/\.[^.]+$/i, "")
+      .toUpperCase()
+      .replace(/\s+/g, "");
+
+    const tryNorm = (token) => normalizePeriodKey(token, kindHint);
+
+    const patterns = [
+      /\d{4}Q[1-4]/, // 2024Q2
+      /\d{2}Q[1-4]/, // 24Q2
+      /\d{2}[1-4]Q/, // 242Q
+      /\d{4}[-_.][1-4](?!\d)/, // 2024_2
+      /\d{2}[-_.][1-4](?!\d)/, // 24-2
+    ];
+    for (const re of patterns) {
+      const m = base.match(re);
+      if (!m) continue;
+      const token = m[0].replace(/[-_.]/, "Q"); // 2024_2 → 2024Q2
+      const k = tryNorm(token) || tryNorm(m[0]);
+      if (k) return k;
+    }
+
+    // 수수료: 파일명 속 20xx 연도
+    if (kindHint === "fees" || kindHint == null) {
+      const y = base.match(/(?:^|[^0-9])(20\d{2})(?:[^0-9]|$)/);
+      if (y) return y[1];
+    }
+
+    // 끝부분 242 형태
+    if (kindHint !== "fees") {
+      const bare = base.match(/(?:^|[^0-9])(\d{2}[1-4])(?:[^0-9]|$)/);
+      if (bare) {
+        const k = tryNorm(bare[1]);
+        if (k) return k;
+      }
+    }
+
+    return null;
+  }
+
   function sheetToMatrix(wb) {
     const sheet = wb.Sheets[wb.SheetNames[0]];
     return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: false });
@@ -198,13 +281,34 @@
         continue;
       }
       scanned++;
+      // 제도블록 6열: 운용(대면/비대면) · 자산(대면/비대면) · 합계(대면/비대면)
       const plan = (c0) => {
+        const opsFace = toNum(row[c0]);
+        const opsOnline = toNum(row[c0 + 1]);
+        const assetFace = toNum(row[c0 + 2]);
+        const assetOnline = toNum(row[c0 + 3]);
         const face = toNum(row[c0 + 4]);
         const online = toNum(row[c0 + 5]);
+        const ops = opsFace != null ? opsFace : opsOnline;
+        const asset = assetFace != null ? assetFace : assetOnline;
+        const rate =
+          face != null
+            ? face
+            : online != null
+            ? online
+            : ops != null && asset != null
+            ? ops + asset
+            : null;
         return {
           face,
           online,
-          rate: face != null ? face : online,
+          ops,
+          asset,
+          opsFace,
+          opsOnline,
+          assetFace,
+          assetOnline,
+          rate,
           metric: "수수료 비용부담률",
         };
       };
@@ -228,22 +332,48 @@
     const wb = XLSX.read(buf, { type: "array" });
     const matrix = sheetToMatrix(wb);
     const kind = opts.kind || detectKind(matrix);
+    const fromName = keyFromFileName(file && file.name, kind);
+    const keyIn = normalizePeriodKey(opts.key, kind) || fromName || null;
     let result;
-    if (kind === "defaults") result = parseDefaults(matrix, opts.key);
-    else if (kind === "fees") result = parseFees(matrix, opts.key);
-    else result = parseReturns(matrix, opts.key);
+    if (kind === "defaults") result = parseDefaults(matrix, keyIn);
+    else if (kind === "fees") result = parseFees(matrix, keyIn);
+    else result = parseReturns(matrix, keyIn);
+    const key =
+      normalizePeriodKey(result.key, kind) ||
+      fromName ||
+      result.key ||
+      null;
+    const issues = [...(result.issues || [])];
+    // 정규화·파일명으로 키가 생겼으면 '키 없음' 류 이슈 제거
+    if (key) {
+      for (let i = issues.length - 1; i >= 0; i--) {
+        if (/분기|연도/.test(issues[i]) && /입력|읽지/.test(issues[i])) issues.splice(i, 1);
+      }
+    }
     return {
       kind,
-      key: result.key,
+      key,
       rows: result.rows,
       problems: result.problems || [],
       skipped: result.skipped || 0,
       scanned: result.scanned || 0,
-      issues: result.issues || [],
+      issues,
       fileName: file.name,
       previewRows: result.rows.length,
+      keySource: normalizePeriodKey(opts.key, kind)
+        ? "input"
+        : fromName && key === fromName
+        ? "filename"
+        : "file",
     };
   }
 
-  global.Parser = { parseFile, detectKind, sectorOf, toNum };
+  global.Parser = {
+    parseFile,
+    detectKind,
+    sectorOf,
+    toNum,
+    normalizePeriodKey,
+    keyFromFileName,
+  };
 })(window);

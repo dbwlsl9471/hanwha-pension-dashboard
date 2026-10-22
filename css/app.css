@@ -198,6 +198,30 @@ button, select, input { font-family: inherit; }
 }
 .page-head h1 { margin: 0; font-size: 1.25rem; }
 .page-head p { margin: 4px 0 0; color: var(--muted); font-size: 0.88rem; }
+
+.empty-period-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 28px 24px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  text-align: center;
+}
+.empty-period-banner strong {
+  font-size: 1.05rem;
+  color: var(--navy);
+}
+.empty-period-banner span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.page.no-period-data > .grid {
+  display: none !important;
+}
+
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .btn {
   border: 1px solid var(--line);
@@ -570,7 +594,13 @@ table.rank-matrix tbody tr:not(.plan-block-start) td {
 }
 .toast.show { display: block; }
 
-/* PDF 캡처 시 버튼·스크롤 제한 해제 */
+/* PDF 캡처: A4 가로 맞춤 폭 + 시스템 한글 폰트 + 잘림 해제 */
+body.capturing-pdf {
+  font-family: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif !important;
+}
+body.capturing-pdf * {
+  font-family: inherit !important;
+}
 body.capturing-pdf .app-header,
 body.capturing-pdf .nav,
 body.capturing-pdf #btnPdf,
@@ -586,12 +616,40 @@ body.capturing-pdf .grid,
 body.capturing-pdf .card {
   overflow: visible !important;
 }
+body.capturing-pdf .main {
+  width: 980px !important;
+  max-width: 980px !important;
+  margin: 0 auto !important;
+  padding: 12px 12px 24px !important;
+}
+body.capturing-pdf #filterCommon {
+  width: 980px !important;
+  max-width: 980px !important;
+  margin: 0 auto 8px !important;
+  box-shadow: none;
+  background: #fff;
+}
+body.capturing-pdf .page.active {
+  background: #f4f6f8;
+  padding: 8px 0 16px !important;
+}
 body.capturing-pdf .table-wrap {
   max-height: none !important;
   overflow: visible !important;
 }
-body.capturing-pdf #filterCommon {
-  box-shadow: none;
+body.capturing-pdf .chart-box {
+  height: 300px !important;
+  overflow: visible !important;
+}
+body.capturing-pdf .chart-box.tall {
+  height: 360px !important;
+}
+body.capturing-pdf .card {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+body.capturing-pdf canvas {
+  max-width: 100%;
 }
 
 @media (max-width: 1100px) {

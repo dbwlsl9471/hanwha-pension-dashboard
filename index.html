@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>한화투자증권 · 퇴직연금 공시 비교</title>
-  <link rel="stylesheet" href="css/app.css?v=24" />
+  <link rel="stylesheet" href="css/app.css?v=28" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -232,24 +232,23 @@
     <!-- 수수료 -->
     <section class="page" id="page-fees">
       <div class="page-head">
-        <div><h1>수수료</h1><p>수수료 부담과 수익률 (낮을수록 1위)</p></div>
+        <div><h1>수수료</h1><p>총비용부담률 비교 (낮을수록 1위)</p></div>
       </div>
       <div class="grid">
         <div class="card span-6">
-          <h3>업권 평균 총비용부담률 <button class="btn" data-export-chart="chartFeeAvg" data-filename="수수료업권.png">PNG</button></h3>
-          <div class="chart-box"><canvas id="chartFeeAvg"></canvas></div>
+          <h3 id="feeAvgTitle">수수료 비용부담률 업권 평균 <button class="btn" data-export-chart="chartFeeAvg" data-filename="수수료업권평균.png">PNG</button></h3>
+          <div class="chart-box tall"><canvas id="chartFeeAvg"></canvas></div>
+          <p class="note" id="feeAvgNote">제도별 업권 평균 · 낮을수록 좋음</p>
         </div>
         <div class="card span-6">
-          <h3>
-            수수료 × 수익률 산점도
-            <select id="feeScatterScope" style="margin-left:8px;padding:4px 6px;border-radius:6px;border:1px solid var(--line)">
-              <option value="증권">당사 업권</option>
-              <option value="전체업권">전체 업권</option>
-            </select>
-            <button class="btn" data-export-chart="chartFeeScatter" data-filename="수수료산점.png">PNG</button>
-          </h3>
-          <div class="chart-box"><canvas id="chartFeeScatter"></canvas></div>
-          <p class="note">왼쪽 위(저수수료·고수익)가 유리. Y축은 필터의 제도·상품유형·기간 수익률.</p>
+          <h3 id="feeMixTitle">수수료 구성 <button class="btn" data-export-chart="chartFeeMix" data-filename="수수료구성.png">PNG</button></h3>
+          <div class="chart-box tall"><canvas id="chartFeeMix"></canvas></div>
+          <p class="note" id="feeMixNote">운용관리 + 자산관리 · 짧을수록 좋음</p>
+        </div>
+        <div class="card span-12">
+          <h3 id="feeYoYTitle">전년 대비 수수료 변화 <button class="btn" data-export-chart="chartFeeYoY" data-filename="수수료전년대비.png">PNG</button></h3>
+          <div class="chart-box tall"><canvas id="chartFeeYoY"></canvas></div>
+          <p class="note" id="feeYoYNote">왼쪽(음수)일수록 인하 · 주황=당사 · 청록=경쟁사 · 보라=업권 평균</p>
         </div>
         <div class="card span-12">
           <h3 id="feeRankTitle">업권 수수료 순위 <button class="btn" data-export-table="tblFee" data-filename="수수료순위.xlsx">엑셀</button></h3>
@@ -285,7 +284,7 @@
               </select>
             </div>
             <div class="field"><label>분기/연도 (선택)</label>
-              <input id="uploadKey" type="text" placeholder="예: 2026Q3 또는 2025" />
+              <input id="uploadKey" type="text" placeholder="예: 2026Q3, 26Q3, 263Q, 2025" />
             </div>
           </div>
           <div class="upload-zone" id="uploadZone">
@@ -294,7 +293,8 @@
             <input type="file" id="fileInput" accept=".xlsx,.xls" multiple />
           </div>
           <p class="note">파일을 고르면 <b>검증 단계</b>에서 인식 행·문제 행을 확인한 뒤 저장합니다.<br>
-            팀원이 같은 숫자를 보려면 저장 후 <b>배포용 data-store.js</b>를 내려받아 서버 파일을 교체하세요.</p>
+            분기/연도는 입력칸·<b>파일명</b>(예: <code>242Q.xlsx</code> → 2024Q2)·엑셀 본문 순으로 인식합니다.<br>
+            저장은 <b>이 PC 브라우저</b>에만 됩니다. 배포 링크 반영은 <b>배포용 data-store.js 받기</b> 후 저장소 교체·push.</p>
         </div>
       </div>
 
@@ -342,9 +342,9 @@
   </div>
   <div class="toast" id="toast"></div>
 
-  <script src="js/data-store.js?v=7"></script>
-  <script src="js/calc.js?v=9"></script>
-  <script src="js/parser.js?v=8"></script>
-  <script src="js/app.js?v=33"></script>
+  <script src="js/data-store.js?v=8"></script>
+  <script src="js/calc.js?v=12"></script>
+  <script src="js/parser.js?v=11"></script>
+  <script src="js/app.js?v=45"></script>
 </body>
 </html>
