@@ -53,11 +53,11 @@
     if (n == null || Number.isNaN(n)) return "—";
     return Math.round(n).toLocaleString("ko-KR");
   }
-  /** 적립금(억): 1,000억 이상은 조 단위 (1조=10,000억) */
+  /** 적립금(억): 1조(10,000억) 이상만 조, 그 미만은 0.00억 */
   function fmtAum(n, d = 2) {
     if (n == null || Number.isNaN(+n)) return "—";
     const v = +n;
-    if (Math.abs(v) >= 1000) {
+    if (Math.abs(v) >= 10000) {
       return (
         (v / 10000).toLocaleString("ko-KR", {
           minimumFractionDigits: d,
@@ -65,7 +65,12 @@
         }) + "조"
       );
     }
-    return Math.round(v).toLocaleString("ko-KR") + "억";
+    return (
+      v.toLocaleString("ko-KR", {
+        minimumFractionDigits: d,
+        maximumFractionDigits: d,
+      }) + "억"
+    );
   }
   function fmtPct(n) {
     return n == null ? "—" : fmt(n) + "%";
